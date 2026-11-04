@@ -7,7 +7,7 @@ It is a single self-contained HTML5 canvas page (`index.html`): no build step, n
 
 ## Play it on an iPhone
 
-1. Serve the folder over HTTPS. The quickest route is GitHub Pages (Settings → Pages → deploy from this branch).
+1. Open **https://elmosky.github.io/a/** in Safari. It's on GitHub Pages and updates on every push to this branch.
    For local testing, run `python3 -m http.server 8000` and open `http://<your-computer-ip>:8000` on the phone (same Wi-Fi).
 2. In Safari, tap Share → **Add to Home Screen**. It launches full-screen like an app, and progress is saved on the device.
 

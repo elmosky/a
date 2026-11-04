@@ -10,6 +10,7 @@ All notable changes to Scuttle are recorded here. The format follows [Keep a Cha
 - Eight fixed planting plots, four plants, three upgrades per plant, and a shared Grip upgrade, all paid for with nutrients from eaten bugs.
 - AI bugs that steer around threats by stat, struggle on their own, and show an escape meter when caught.
 - Browser tests in `tests/`: a frame-by-frame and pixel check that bug mode is unchanged, plant-mode tests at five iPhone sizes, and balance bots.
+- Hosted on GitHub Pages at https://elmosky.github.io/a/.
 - This changelog.
 
 ### Changed

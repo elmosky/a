@@ -124,7 +124,7 @@ The game has no dependencies. The tests do, and they live in `tests/`:
 cd tests && npm install && npx playwright install webkit
 ```
 
-- `npm test` runs `bug-mode-unchanged.mjs` (replays scripted play through the pre-plant-mode build and this one, and compares every frame) and `plant-mode.mjs` (real taps in WebKit at five iPhone sizes).
+- `npm test` runs `bug-mode-unchanged.mjs` (replays scripted play through the pre-plant-mode build and this one, and compares every frame plus rendered pixels) and `plant-mode.mjs` (real taps in WebKit at five iPhone sizes).
 - `npm run balance` plays full games with scripted players and measures struggle odds.
 
 ## Code map (`index.html`)

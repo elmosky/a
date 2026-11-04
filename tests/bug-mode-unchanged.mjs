@@ -37,6 +37,27 @@ function trace() {
   return out;
 }
 
+// Same idea for drawing: render fixed moments on every landscape and hash the canvas pixels.
+function pixels() {
+  const hash = (s, h = 2166136261) => { for (let i = 0; i < s.length; i++) { h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); } return h >>> 0; };
+  const out = {};
+  for (let lvl = 0; lvl < LEVELS.length; lvl++) {
+    save.unlocked = 4; S.bugType = 'ant';
+    let seed = lvl + 9;
+    Math.random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) | 0; return (seed >>> 0) / 4294967296; };
+    startLevel(lvl); beginPlay();
+    for (let f = 0; f < 300; f++) { input.active = true; input.x = 0; input.y = -1; update(1 / 60); updateFx(1 / 60); if (S.mode !== 'play') break; }
+    input.active = false; input.x = input.y = 0;
+    for (const [name, camY] of [['start', S.camY], ['top', 0]]) {
+      S.mode = 'play'; S.camY = camY; T = 12.5;
+      S.texts = [{ x: 120, y: camY + 200, text: 'Checkpoint', color: '#e6ffb0', life: 1 }];
+      render();
+      out[`pixels ${lvl}/${name}`] = hash(canvas.toDataURL());
+    }
+  }
+  return out;
+}
+
 const browser = await webkit.launch();
 async function run(path) {
   const ctx = await browser.newContext({ viewport: { width: 390, height: 844 } });
@@ -45,7 +66,7 @@ async function run(path) {
   page.on('pageerror', (e) => errors.push(e.message));
   await page.addInitScript(() => { window.requestAnimationFrame = () => 0; });
   await page.goto('file://' + path);
-  const res = await page.evaluate(trace);
+  const res = { ...(await page.evaluate(trace)), ...(await page.evaluate(pixels)) };
   await ctx.close();
   return { res, errors };
 }
@@ -59,5 +80,5 @@ for (const k of Object.keys(a.res)) {
   if (!same) bad++;
   console.log(same ? 'same' : 'DIFF', k, JSON.stringify(b.res[k]), same ? '' : 'was ' + JSON.stringify(a.res[k]));
 }
-console.log(bad ? `FAIL: ${bad} differences` : `PASS: all ${Object.keys(a.res).length} bug/landscape runs identical to ${BASE_COMMIT}`);
+console.log(bad ? `FAIL: ${bad} differences` : `PASS: all ${Object.keys(a.res).length} scripted runs and rendered frames identical to ${BASE_COMMIT}`);
 process.exit(bad ? 1 : 0);

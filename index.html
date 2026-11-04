@@ -126,6 +126,36 @@
   #resStars { font-size: 44px; text-align: center; color: var(--accent); letter-spacing: 6px; margin: 8px 0; }
   #resStars .off { color: rgba(255, 255, 255, 0.15); }
   .center { text-align: center; }
+
+  /* Plant mode */
+  #hud.pm { background: rgba(10, 18, 8, 0.55); padding-bottom: 8px; }
+  #pmBar {
+    position: absolute; left: 0; right: 0; bottom: 0; pointer-events: none; box-sizing: border-box;
+    padding: 8px 16px calc(env(safe-area-inset-bottom) + 10px); min-height: 66px;
+    display: flex; align-items: center; justify-content: center;
+  }
+  #pmBar button { pointer-events: auto; width: 100%; max-width: 420px; min-height: 52px; }
+  #pmTip { font-weight: 700; font-size: 16px; text-shadow: 0 1px 3px rgba(0, 0, 0, 0.7); text-align: center; }
+  #pmSheet {
+    position: absolute; left: 8px; right: 8px; bottom: calc(env(safe-area-inset-bottom) + 8px); max-width: 420px;
+    margin: 0 auto; box-sizing: border-box; background: var(--panel); border: 1px solid var(--line); border-radius: 20px;
+    padding: 12px; box-shadow: 0 12px 40px rgba(0, 0, 0, 0.45);
+  }
+  #pmSheet.top { bottom: auto; top: calc(env(safe-area-inset-top) + 60px); }
+  .pm-head { display: flex; align-items: center; gap: 10px; margin-bottom: 10px; }
+  .pm-head b { flex: 1; font-size: 18px; }
+  .pm-head span { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
+  .pm-head button { width: 48px; padding: 0; }
+  .pm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .pm-card {
+    display: grid; grid-template-columns: 44px 1fr; gap: 0 8px; align-items: center; text-align: left;
+    padding: 8px; min-height: 76px; background: var(--chip); color: var(--ink); border: 1px solid var(--line); font-size: 15px;
+  }
+  .pm-card canvas { grid-row: 1 / span 2; }
+  .pm-card small { display: block; font-weight: 500; color: var(--muted); font-size: 12px; line-height: 1.25; }
+  .pm-card:disabled { opacity: 0.5; color: var(--ink); }
+  #pmSheet .evo-list { margin-top: 0; }
+  #pmSheet .evo-row button { min-height: 52px; }
   .stack { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
 </style>
 </head>
@@ -143,16 +173,39 @@
   <div class="stat" id="hudLives"></div>
 </div>
 
+<div id="pmBar" class="hidden">
+  <button id="pmWave"></button>
+  <div id="pmTip" class="hidden"></div>
+</div>
+
+<div id="pmSheet" class="hidden">
+  <div class="pm-head">
+    <b id="pmSheetTitle"></b>
+    <span id="pmSheetNut"></span>
+    <button class="secondary" id="pmClose" aria-label="Close">✕</button>
+  </div>
+  <div id="pmSheetBody"></div>
+</div>
+
 <div id="menu" class="overlay">
   <div class="panel">
     <h1>Scutt<span>le</span></h1>
-    <p class="tag">Get across. Don't get eaten.</p>
-    <h2>Pick your bug</h2>
-    <div class="row" id="bugRow"></div>
-    <p class="bug-desc" id="bugDesc"></p>
-    <button class="secondary evo-btn" id="evoOpen"></button>
-    <h2>Pick a landscape</h2>
-    <div class="levels" id="levelList"></div>
+    <p class="tag" id="menuTag"></p>
+    <h2>Pick a side</h2>
+    <div class="row" id="sideRow"></div>
+    <div id="bugSide">
+      <h2>Pick your bug</h2>
+      <div class="row" id="bugRow"></div>
+      <p class="bug-desc" id="bugDesc"></p>
+      <button class="secondary evo-btn" id="evoOpen"></button>
+      <h2>Pick a landscape</h2>
+      <div class="levels" id="levelList"></div>
+    </div>
+    <div id="plantSide" class="hidden">
+      <p class="bug-desc">Plant on the soil patches and eat the bugs before they cross the bog. Eaten bugs pay for more plants and upgrades.</p>
+      <h2>Pick a landscape</h2>
+      <div class="levels" id="pmLevelList"></div>
+    </div>
   </div>
 </div>
 
@@ -294,11 +347,69 @@ const THEMES = {
   night:  { ground: '#2d4733', patch: '#273f2d', side: '#16261a', meadow: '#3c5a3c', decor: ['grass', 'mushroom', 'pebble', 'moss'] },
 };
 
+// Plant mode: the player defends the bog. Every plant-mode tuning knob lives in these tables.
+const PM = {
+  goalY: 150, spawnY: 735,          // bugs walk from spawnY up to goalY
+  viewTop: 130, viewBot: 690,       // world band that must always fit between the HUD and the bottom bar
+  tapR: 52,                         // tap radius around a plot, in world units
+  slowMo: 0.3,                      // game speed while a plant menu is open
+  walk: 0.55,                       // AI bugs walk at this fraction of their BUGS speed, or they outrun every trap
+  pull: 0.8,                        // pitcher pull x this, since it competes with that slower walking speed
+  sight: 30,                        // how far past a threat's edge a bug starts to dodge
+  digest: 0.55,                     // plants digest in this fraction of the GRIP time limit, so one plant can eat often
+  closed: 0.8,                      // seconds a flytrap stays shut after eating (bug mode's 2.2 s is too long here)
+  tapRate: 5.0,                     // struggle taps per second for an AI bug (x0.6 to x1.4 per struggle)
+  gripCost: [45, 75, 120], gripStep: 0.12,   // each Grip level: bug's gain / (1 + step), meter decay x (1 + step)
+  waveBonus: 60,                    // nutrients for clearing a wave
+};
+
+// aware: how hard a bug dodges threats. bounty: nutrients when eaten. damage: bog health lost if it gets through.
+const AI = {
+  ant:    { aware: 0.35, bounty: 12, damage: 1 },
+  fly:    { aware: 0.12, bounty: 14, damage: 1 },
+  beetle: { aware: 0,   bounty: 30, damage: 3 },
+};
+
+// cap: how many bugs a plant can hold at once. hold: its base grip on a struggling bug. path: three upgrades, in order.
+const PM_PLANTS = {
+  flytrap: { name: 'Venus flytrap', cost: 50, cap: 1, hold: 1, desc: 'Snaps up one bug at a time', path: [
+    { name: 'Bigger trigger zone', cost: 40, eff: 'Reaches bugs further away', apply: (p) => { p.trig = 84; p.kill = 72; } },
+    { name: 'Faster snap', cost: 60, eff: 'Jaws shut in half the time', apply: (p) => { p.warnT = 0.25; } },
+    { name: 'Shorter digest', cost: 90, eff: 'Eats faster and reopens sooner', apply: (p) => { p.digest = 0.35; p.closedT = 0.3; } },
+  ] },
+  sundew: { name: 'Sundew', cost: 40, cap: 2, hold: 1.35, desc: 'Slows bugs, then sticks them', path: [
+    { name: 'Wider rosette', cost: 35, eff: 'Covers more ground', apply: (p) => { p.r = 72; } },
+    { name: 'Stickier', cost: 55, eff: 'Bugs get stuck sooner', apply: (p) => { p.stickRate = 1.9; } },
+    { name: 'Slower bugs inside', cost: 80, eff: 'Bugs crawl at 20% speed', apply: (p) => { p.slow = 0.2; } },
+  ] },
+  pitcher: { name: 'Pitcher plant', cost: 65, cap: 2, hold: 1, desc: 'Drags bugs toward its pit', path: [
+    { name: 'Wider scent pull', cost: 40, eff: 'Pulls from further away', apply: (p) => { p.pull = 135; } },
+    { name: 'Stronger pull', cost: 60, eff: 'Pulls 70% harder', apply: (p) => { p.force = 1.7; } },
+    { name: 'Wider mouth', cost: 85, eff: 'Swallows bugs sooner', apply: (p) => { p.mouth = 30; } },
+  ] },
+  bladder: { name: 'Bladderwort', cost: 55, cap: 2, hold: 1, desc: 'Sucks in bugs in bursts', path: [
+    { name: 'Faster cycle', cost: 45, eff: 'Bursts 50% more often', apply: (p) => { p.rate = 1.5; } },
+    { name: 'Bigger suction', cost: 65, eff: 'Reaches bugs further away', apply: (p) => { p.suck = 150; } },
+    { name: 'Stronger burst', cost: 90, eff: 'Drags bugs 60% harder', apply: (p) => { p.force = 1.6; } },
+  ] },
+};
+
+// waves: groups of { bug, n, gap (seconds between bugs), delay (seconds after the wave starts) }.
+const PM_LEVELS = [
+  { level: 0, nutrients: 170, hp: 20,
+    plots: [[105, 625], [295, 610], [200, 520], [90, 425], [310, 410], [200, 315], [105, 225], [300, 220]],
+    waves: [
+      [{ bug: 'ant', n: 8, gap: 2, delay: 0 }],
+      [{ bug: 'ant', n: 10, gap: 1.7, delay: 0 }, { bug: 'fly', n: 6, gap: 2.4, delay: 6 }],
+      [{ bug: 'ant', n: 12, gap: 1.8, delay: 0 }, { bug: 'fly', n: 8, gap: 2.4, delay: 5 }, { bug: 'beetle', n: 4, gap: 5, delay: 9 }],
+    ] },
+];
+
 // ---------------------------------------------------------------------------
 // Save data
 // ---------------------------------------------------------------------------
 const SAVE_KEY = 'scuttle.v1';
-let save = { unlocked: 1, stars: [0, 0, 0, 0], bug: 'ant', last: 0, points: 0, evo: {} };
+let save = { unlocked: 1, stars: [0, 0, 0, 0], bug: 'ant', last: 0, points: 0, evo: {}, side: 'bug' };
 try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s) save = Object.assign(save, s); } catch (e) {}
 for (const k of Object.keys(BUGS)) {
   save.evo[k] = Object.assign(Object.fromEntries(EVO.map((u) => [u.key, 0])), save.evo[k] || {});
@@ -423,6 +534,7 @@ const S = {
   mode: 'menu', level: save.last || 0, bugType: save.bug in BUGS ? save.bug : 'ant',
   lv: null, bug: null, lives: 3, deaths: 0, time: 0, dropsGot: 0, cpReached: false,
   caught: null, caughtT: 0, struggle: null, camY: 0, particles: [], texts: [], earned: 0,
+  pm: null,   // plant-mode run; null whenever bug mode is on
 };
 window.__scuttle = S; // handy for debugging in the console
 
@@ -443,6 +555,7 @@ const JOY_R = 55;
 const keys = {};
 canvas.addEventListener('pointerdown', (e) => {
   audioInit();
+  if (S.mode === 'plant') { pmTap(e.clientX, e.clientY); e.preventDefault(); return; }
   if (S.mode === 'play' && S.struggle) { struggleTap(); e.preventDefault(); return; }
   if (S.mode !== 'play' || input.active) return;
   input.active = true; input.id = e.pointerId;
@@ -468,7 +581,7 @@ document.addEventListener('touchmove', (e) => { if (e.target === canvas) e.preve
 window.addEventListener('keydown', (e) => {
   if (e.key === ' ' && !e.repeat && S.mode === 'play' && S.struggle) { struggleTap(); e.preventDefault(); }
   keys[e.key.toLowerCase()] = true;
-  if (e.key === 'Escape' || e.key === 'p') { if (S.mode === 'play') pauseGame(); else if (S.mode === 'pause') resumeGame(); }
+  if (e.key === 'Escape' || e.key === 'p') { if (S.mode === 'play' || S.mode === 'plant') pauseGame(); else if (S.mode === 'pause') resumeGame(); }
 });
 window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
 function keyVector() {
@@ -489,6 +602,7 @@ function bladderPhase(p) {
 }
 function trapOpen(p) {
   if (S.struggle && S.struggle.p === p) return 0.4 * S.struggle.prog;   // jaws pried open as you struggle
+  if (p.held && p.held.length) return 0.4 * p.held[0].st.prog;
   switch (p.state) {
     case 'open': case 'warn': return 1;
     case 'snap': return 1 - Math.min(1, p.t / FT.snap);
@@ -497,28 +611,29 @@ function trapOpen(p) {
   }
   return 1;
 }
-function onScreen(y, pad = 140) { return y > S.camY - pad && y < S.camY + viewH + pad; }
+function onScreen(y, pad = 140) { return !!S.pm || (y > S.camY - pad && y < S.camY + viewH + pad); }
 
 function updatePlant(p, dt, b) {
   if (p.type === 'flytrap') {
-    if (S.struggle && S.struggle.p === p) { p.state = 'closed'; p.t = 0; return; }   // holds shut on its prey
+    if ((S.struggle && S.struggle.p === p) || (p.held && p.held.length)) { p.state = 'closed'; p.t = 0; return; }   // holds shut on its prey
     p.t += dt;
     if (p.state === 'open') {
       if (b && dist(p.x, p.y, b.x, b.y) < p.trig) { p.state = 'warn'; p.t = 0; }
-    } else if (p.state === 'warn' && p.t >= FT.warn) {
+    } else if (p.state === 'warn' && p.t >= (p.warnT ?? FT.warn)) {
       p.state = 'snap'; p.t = 0;
       if (onScreen(p.y)) SFX.snap();
-      if (b && !S.caught && S.bug.inv <= 0 && dist(p.x, p.y, S.bug.x, S.bug.y) < p.kill + S.bug.r * 0.5) catchBug(p);
+      if (S.pm) pmSnap(p);
+      else if (b && !S.caught && S.bug.inv <= 0 && dist(p.x, p.y, S.bug.x, S.bug.y) < p.kill + S.bug.r * 0.5) catchBug(p);
     } else if (p.state === 'snap' && p.t >= FT.snap) { p.state = 'closed'; p.t = 0; }
-    else if (p.state === 'closed' && p.t >= FT.closed) { p.state = 'opening'; p.t = 0; }
+    else if (p.state === 'closed' && p.t >= (p.closedT ?? FT.closed)) { p.state = 'opening'; p.t = 0; }
     else if (p.state === 'opening' && p.t >= FT.opening) { p.state = 'open'; p.t = 0; }
   } else if (p.type === 'bladder') {
-    p.t += dt;
+    p.t += dt * (p.rate ?? 1);
     const st = bladderPhase(p).stage;
     if (st === 'burst' && p.last !== 'burst' && onScreen(p.y, 0)) SFX.suck();
     p.last = st;
   } else if (p.type === 'sundew') {
-    const holding = (S.caught && S.caught.p === p) || (S.struggle && S.struggle.p === p);
+    const holding = (S.caught && S.caught.p === p) || (S.struggle && S.struggle.p === p) || (p.held && p.held.length);
     if (!holding) p.curl = Math.max(0, p.curl - dt * 0.4);
   }
 }
@@ -573,10 +688,9 @@ function updateStruggle(dt) {
   b.x = st.hx; b.y = st.hy;
 }
 
-function escapeFrom(st) {
-  const b = S.bug, p = st.p;
+function popOut(b, p, x0, y0) {
   // Pop out away from the plant: back the way you came, or forward (up) if there is no clear direction.
-  let dx = st.x0 - p.x, dy = st.y0 - p.y, d = Math.hypot(dx, dy);
+  let dx = x0 - p.x, dy = y0 - p.y, d = Math.hypot(dx, dy);
   if (d < 3) { dx = 0; dy = -1; d = 1; }
   dx /= d; dy /= d;
   const out = { flytrap: p.kill + b.r + 8, sundew: (p.r || 0) + b.r + 2, pitcher: p.mouth + b.r + 20, bladder: p.kill + b.r + 30 }[p.type];
@@ -584,6 +698,11 @@ function escapeFrom(st) {
   b.vx = dx * 220; b.vy = dy * 220; b.stick = 0; b.inv = 1.2;
   if (p.type === 'flytrap') { p.state = 'opening'; p.t = 0; }
   if (p.type === 'sundew') p.curl = 0.6;
+}
+
+function escapeFrom(st) {
+  const b = S.bug;
+  popOut(b, st.p, st.x0, st.y0);
   S.struggle = null;
   addText(b.x, b.y - 24, 'Broke free!', '#c8f37a');
   burst(b.x, b.y, '#f2c14e', 12); SFX.free();
@@ -733,7 +852,7 @@ function drawFlytrap(g, p) {
   }
   g.restore();
   if (p.state === 'closed') {
-    const k = 1 - p.t / FT.closed;
+    const k = 1 - p.t / (p.closedT ?? FT.closed);
     g.beginPath(); g.arc(p.x, p.y, s * 0.95, -Math.PI / 2, -Math.PI / 2 + TAU * k);
     g.strokeStyle = 'rgba(150,255,140,0.7)'; g.lineWidth = 3; g.lineCap = 'round'; g.stroke();
   }
@@ -934,17 +1053,8 @@ function drawFlower(g, f) {
   g.restore();
 }
 
-function render() {
-  const g = ctx, lv = S.lv;
-  g.setTransform(dpr, 0, 0, dpr, 0, 0);
-  const L = LEVELS[lv.i], th = THEMES[L.theme];
-  g.fillStyle = th.side; g.fillRect(0, 0, cssW, cssH);
-
-  g.save();
-  g.translate(offX, 0); g.scale(scale, scale); g.translate(0, -S.camY);
-  const top = S.camY, bot = S.camY + viewH;
-  g.beginPath(); g.rect(0, top, W, viewH); g.clip();
-  g.fillStyle = th.ground; g.fillRect(0, top, W, viewH);
+function drawTerrain(g, lv, th, top, bot) {
+  g.fillStyle = th.ground; g.fillRect(0, top, W, bot - top);
 
   // ground patches give a sense of motion
   g.fillStyle = th.patch;
@@ -961,6 +1071,29 @@ function render() {
   g.fillStyle = edge; g.fillRect(0, lv.goalY - 10, W, 40);
   if (onScreen(0, 200)) for (const f of lv.flowers) drawFlower(g, f);
   g.fillStyle = 'rgba(255,255,255,0.08)'; g.fillRect(0, lv.len - 200, W, 200);
+}
+
+function drawFloatText(g, ox, oy, s) {
+  g.font = '700 16px ui-rounded, -apple-system, system-ui, sans-serif'; g.textAlign = 'center';
+  for (const t of S.texts) {
+    const sx = ox + t.x * s, sy = oy + t.y * s;
+    g.globalAlpha = Math.min(1, t.life); g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillText(t.text, sx + 1, sy + 1);
+    g.fillStyle = t.color; g.fillText(t.text, sx, sy);
+  }
+  g.globalAlpha = 1;
+}
+
+function render() {
+  const g = ctx, lv = S.lv;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  const L = LEVELS[lv.i], th = THEMES[L.theme];
+  g.fillStyle = th.side; g.fillRect(0, 0, cssW, cssH);
+
+  g.save();
+  g.translate(offX, 0); g.scale(scale, scale); g.translate(0, -S.camY);
+  const top = S.camY, bot = S.camY + viewH;
+  g.beginPath(); g.rect(0, top, W, viewH); g.clip();
+  drawTerrain(g, lv, th, top, bot);
 
   // checkpoint
   if (onScreen(lv.cpY)) {
@@ -1024,14 +1157,7 @@ function render() {
   if (L.dark) renderNight(g, lv);
   if (S.struggle && S.mode === 'play') renderStruggle(g);
 
-  // floating text on top of everything (screen space)
-  g.font = '700 16px ui-rounded, -apple-system, system-ui, sans-serif'; g.textAlign = 'center';
-  for (const t of S.texts) {
-    const sx = offX + t.x * scale, sy = (t.y - S.camY) * scale;
-    g.globalAlpha = Math.min(1, t.life); g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillText(t.text, sx + 1, sy + 1);
-    g.fillStyle = t.color; g.fillText(t.text, sx, sy);
-  }
-  g.globalAlpha = 1;
+  drawFloatText(g, offX, -S.camY * scale, scale);   // on top of everything (screen space)
 
   if (input.active && S.mode === 'play') {
     g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 2; g.beginPath(); g.arc(input.ox, input.oy, JOY_R, 0, TAU); g.stroke();
@@ -1119,7 +1245,35 @@ function thumb(draw, size = 64) {
 }
 function starHTML(n) { return [0, 1, 2].map((i) => (i < n ? '★' : '<span class="off">★</span>')).join(''); }
 
+function buildSides() {
+  const row = $('sideRow'); row.innerHTML = '';
+  for (const [key, name, art] of [
+    ['bug', 'Bug', (g) => drawBug(g, 'ant', 0, 2, -Math.PI / 2, 0.8, { scale: 1.9 })],
+    ['plant', 'Plant', (g) => { const art = pmArt('flytrap'); g.scale(0.5, 0.5); drawPlant(g, art); }],
+  ]) {
+    const btn = document.createElement('button');
+    btn.id = `side-${key}`; btn.className = 'bug-card' + (key === save.side ? ' sel' : '');
+    btn.appendChild(thumb(art, 56));
+    btn.appendChild(document.createTextNode(name));
+    btn.onclick = () => { save.side = key; persist(); buildMenu(); };
+    row.appendChild(btn);
+  }
+  const plant = save.side === 'plant';
+  $('menuTag').textContent = plant ? 'Hold the bog. Eat every bug.' : 'Get across. Don\'t get eaten.';
+  $('bugSide').classList.toggle('hidden', plant);
+  $('plantSide').classList.toggle('hidden', !plant);
+  const list = $('pmLevelList'); list.innerHTML = '';
+  PM_LEVELS.forEach((C, i) => {
+    const L = LEVELS[C.level], btn = document.createElement('button');
+    btn.className = 'level-btn';
+    btn.innerHTML = `<div>${L.name}<small>${C.waves.length} waves of bugs</small></div>`;
+    btn.onclick = () => { audioInit(); pmStart(i); };
+    list.appendChild(btn);
+  });
+}
+
 function buildMenu() {
+  buildSides();
   const row = $('bugRow'); row.innerHTML = '';
   for (const [key, B] of Object.entries(BUGS)) {
     const btn = document.createElement('button');
@@ -1208,9 +1362,9 @@ function startLevel(i) {
 }
 
 function beginPlay() { S.mode = 'play'; show(null); $('hud').classList.remove('hidden'); hudCache = {}; }
-function pauseGame() { if (S.mode !== 'play') return; S.mode = 'pause'; input.active = false; input.x = input.y = 0; show('pause'); }
-function resumeGame() { S.mode = 'play'; show(null); last = performance.now(); }
-function toMenu() { S.mode = 'menu'; $('hud').classList.add('hidden'); buildMenu(); show('menu'); }
+function pauseGame() { if (S.mode !== 'play' && S.mode !== 'plant') return; S.mode = 'pause'; input.active = false; input.x = input.y = 0; show('pause'); }
+function resumeGame() { S.mode = S.pm ? 'plant' : 'play'; show(null); last = performance.now(); }
+function toMenu() { S.mode = 'menu'; S.pm = null; pmHideUI(); $('hud').classList.add('hidden'); buildMenu(); show('menu'); }
 
 function endLevel(won) {
   S.mode = 'result'; $('hud').classList.add('hidden'); input.active = false;
@@ -1239,12 +1393,13 @@ function endLevel(won) {
   show('result');
 }
 
-$('goBtn').onclick = () => { audioInit(); beginPlay(); };
+const restart = () => (S.pm ? pmStart(S.pm.i) : startLevel(S.level));
+$('goBtn').onclick = () => { audioInit(); if (S.pm) pmBegin(); else beginPlay(); };
 $('pauseBtn').onclick = pauseGame;
 $('resumeBtn').onclick = resumeGame;
-$('restartBtn').onclick = () => startLevel(S.level);
+$('restartBtn').onclick = restart;
 $('quitBtn').onclick = toMenu;
-$('resRetry').onclick = () => startLevel(S.level);
+$('resRetry').onclick = restart;
 $('resNext').onclick = () => startLevel(Math.min(LEVELS.length - 1, S.level + 1));
 $('resMenu').onclick = toMenu;
 $('evoOpen').onclick = () => { buildEvolve(); show('evolve'); };
@@ -1275,6 +1430,434 @@ function updateHUD() {
 }
 
 // ---------------------------------------------------------------------------
+// Plant mode: the same plants and bugs, with the player on the plants' side
+// ---------------------------------------------------------------------------
+function pmStart(i, seed = Date.now()) {
+  const C = PM_LEVELS[i], lv = buildLevel(C.level);
+  lv.plants = []; lv.drops = []; lv.goalY = PM.goalY; lv.len = PM.spawnY + 140;
+  S.pm = {
+    i, C, lv, R: rng(seed), plots: C.plots.map(([x, y]) => ({ x, y, plant: null })), bugs: [], queue: [],
+    nutrients: C.nutrients, hp: C.hp, wave: 0, active: false, t: 0, grip: 0, sel: null,
+    eaten: 0, leaked: 0, escapes: 0, view: { s: 1, ox: 0, oy: 0 },
+  };
+  S.struggle = null; S.caught = null; S.particles = []; S.texts = [];
+  hudCache = {};
+  $('hud').classList.add('pm');
+  $('hudStam').parentElement.classList.add('hidden');
+  $('hud').classList.remove('hidden'); $('pmBar').classList.remove('hidden');
+  pmCloseSheet();
+  pmLayout();
+
+  $('introKicker').textContent = 'Plant mode';
+  $('introTitle').textContent = LEVELS[C.level].name;
+  const body = $('introBody'); body.innerHTML = '';
+  for (const [emoji, title, text] of [
+    ['🌱', 'Plant', 'Tap a soil patch and pick a plant. Plants cost nutrients.'],
+    ['🪲', 'Eat', 'Eaten bugs pay nutrients. Caught bugs fight back: the yellow ring is their escape meter.'],
+    ['⬆️', 'Upgrade', 'Tap a plant to upgrade it. Upgrades only last this run.'],
+  ]) {
+    const item = document.createElement('div'); item.className = 'intro-item';
+    item.innerHTML = `<div class="emoji">${emoji}</div><div><b>${title}</b><span>${text}</span></div>`;
+    body.appendChild(item);
+  }
+  $('introHint').textContent = `Bugs that reach the flowers drain the bog. Survive all ${C.waves.length} waves.`;
+  S.mode = 'intro'; show('intro');
+}
+
+function pmBegin() { S.mode = 'plant'; show(null); }
+
+function pmHideUI() {
+  $('pmBar').classList.add('hidden'); $('pmSheet').classList.add('hidden');
+  $('hud').classList.remove('pm');
+  $('hudStam').parentElement.classList.remove('hidden');
+}
+
+// Fit the whole bog between the HUD and the bottom bar, whatever the screen size.
+function pmLayout() {
+  const m = S.pm, top = $('hud').getBoundingClientRect().bottom, room = $('pmBar').getBoundingClientRect().top - top;
+  const fit = PM.viewBot - PM.viewTop, s = Math.min(cssW / W, room / fit);
+  m.view = { s, ox: (cssW - W * s) / 2, oy: top + (room - fit * s) / 2 - PM.viewTop * s };
+}
+window.addEventListener('resize', () => { if (S.pm) pmLayout(); });
+
+function pmStartWave() {
+  const m = S.pm;
+  if (m.active || S.mode !== 'plant') return;
+  m.active = true; m.t = 0; m.queue = [];
+  for (const w of m.C.waves[m.wave]) for (let j = 0; j < w.n; j++) m.queue.push({ t: w.delay + j * w.gap, type: w.bug });
+  m.queue.sort((a, b) => a.t - b.t);
+}
+
+function pmSpawn(type) {
+  const m = S.pm, B = BUGS[type];
+  m.bugs.push({ type, x: 30 + m.R() * 340, y: PM.spawnY + m.R() * 30, r: B.r, vx: 0, vy: 0, ang: -Math.PI / 2, phase: 0,
+    stick: 0, armor: B.armor, inv: 0, stam: B.stamina, side: m.R() < 0.5 ? -1 : 1, wob: m.R() * TAU, st: null, gone: 0 });
+}
+
+const pmFree = (b) => !b.st && !b.gone && b.inv <= 0;
+const pmRoom = (p) => p.held.length < p.cap;
+
+function pmSnap(p) {
+  let best = null, bd = Infinity;
+  for (const b of S.pm.bugs) {
+    const d = dist(p.x, p.y, b.x, b.y);
+    if (pmFree(b) && d < p.kill + b.r * 0.5 && d < bd) { best = b; bd = d; }
+  }
+  if (best) pmCatch(best, p);
+}
+
+function pmCatch(b, p) {
+  if (!pmRoom(p) || b.inv > 0) return;
+  if (b.armor > 0) {   // a beetle's shell shrugs off the first bite, same as in bug mode
+    b.armor--; b.inv = 1.4; b.stick = 0;
+    const dx = b.x - p.x, dy = b.y - p.y, d = Math.hypot(dx, dy) || 1;
+    b.vx = dx / d * 260; b.vy = dy / d * 260;
+    addText(b.x, b.y - 24, 'Shell cracked!', '#ffd36b');
+    burst(b.x, b.y, '#9fe0c8', 14); SFX.crack();
+    return;
+  }
+  const m = S.pm, sticky = p.type === 'sundew';
+  b.st = { p, x0: b.x, y0: b.y, hx: sticky ? b.x : p.x, hy: sticky ? b.y : p.y, prog: 0, t: 0, shake: 0,
+    limit: GRIP[p.type].limit * p.digest, rate: PM.tapRate * (0.6 + m.R() * 0.8), tap: 0 };
+  b.vx = b.vy = 0;
+  p.held.push(b);
+  if (sticky) p.curl = 1;
+  SFX.snap();
+}
+
+// A caught bug "taps" on its own. Same meter as the player's struggle in bug mode: taps cost stamina, the
+// meter decays, and the plant's digest time is the limit. Grip weakens every tap and speeds up the decay.
+function pmStruggle(b, dt) {
+  const st = b.st, m = S.pm, G = GRIP[st.p.type], gripK = PM_PLANTS[st.p.type].hold * (1 + PM.gripStep * m.grip);
+  st.t += dt;
+  st.shake = Math.max(0, st.shake - dt * 6);
+  st.tap -= dt;
+  while (st.tap <= 0) {
+    st.tap += -Math.log(1 - m.R()) / st.rate;
+    if (b.stam >= TAP_COST) { b.stam -= TAP_COST; st.prog = Math.min(1, st.prog + G.gain * BUGS[b.type].grip / gripK); st.shake = 1; }
+  }
+  if (st.prog >= 1) { pmRelease(b); popOut(b, st.p, st.x0, st.y0); m.escapes++; addText(b.x, b.y - 24, 'Broke free!', '#ffb3a0'); return; }
+  st.prog = Math.max(0, st.prog - G.decay * gripK * dt);
+  if (st.t >= st.limit) {
+    const p = st.p, A = AI[b.type];
+    pmRelease(b);
+    b.x = st.hx; b.y = st.hy; b.gone = 0.001;
+    if (p.type === 'flytrap') { p.state = 'closed'; p.t = 0; }
+    m.nutrients += A.bounty; m.eaten++;
+    addText(st.hx, st.hy - 24, `+${A.bounty} 🌱`, '#c8f37a');
+    burst(st.hx, st.hy, '#c8f37a', 8); SFX.drop();
+  }
+}
+function pmRelease(b) { const h = b.st.p.held; h.splice(h.indexOf(b), 1); b.st = null; }
+
+function pmThreat(p) {
+  switch (p.type) {
+    case 'flytrap': return p.state === 'open' || p.state === 'warn' ? p.trig : 0;
+    case 'sundew':  return p.r;
+    case 'pitcher': return pmRoom(p) ? p.pull * 0.6 : 0;
+    case 'bladder': return bladderPhase(p).stage === 'idle' ? 0 : p.suck * 0.6;
+  }
+}
+
+// Head for the top and sidestep threats ahead. It never stops, so a bug can't get stuck or stall a wave.
+function pmSteer(b) {
+  const m = S.pm, aware = AI[b.type].aware;
+  let ix = Math.sin(m.t * 1.3 + b.wob) * 0.18;
+  for (const p of m.lv.plants) {
+    const dy = b.y - p.y, R = dy < -20 ? 0 : pmThreat(p);
+    if (!R) continue;
+    const dx = b.x - p.x, d = Math.hypot(dx, dy), sense = R + b.r + PM.sight;
+    if (d < sense) ix += (Math.abs(dx) > 4 ? Math.sign(dx) : b.side) * aware * (1 - d / sense) * 2.2;
+  }
+  const l = Math.hypot(ix, 1);
+  return [ix / l, -1 / l];
+}
+
+function pmMoveBug(b, dt) {
+  const m = S.pm, B = BUGS[b.type];
+  let slow = 1, ex = 0, ey = 0, dew = null;
+  if (b.inv <= 0) {
+    for (const p of m.lv.plants) {
+      if (Math.abs(p.y - b.y) > 170) continue;
+      const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy) || 0.001;
+      if (p.type === 'sundew') {
+        if (d < p.r + b.r * 0.3) { dew = p; slow = Math.min(slow, p.slow ?? 0.38); }
+      } else if (p.type === 'pitcher' && pmRoom(p)) {
+        if (d < p.mouth) { pmCatch(b, p); if (b.st) return; }
+        if (d < p.pull) { const f = (95 * (1 - d / p.pull) + 15) * PM.pull * (p.force ?? 1); ex += dx / d * f; ey += dy / d * f; }
+      } else if (p.type === 'bladder' && bladderPhase(p).stage === 'burst' && d < p.suck) {
+        if (d < p.kill + b.r * 0.3) { pmCatch(b, p); if (b.st) return; }
+        const f = 250 * Math.pow(1 - d / p.suck, 0.8) * (p.force ?? 1); ex += dx / d * f; ey += dy / d * f;
+      }
+    }
+  }
+  b.inv = Math.max(0, b.inv - dt);
+  if (dew) {
+    b.stick += dt * (dew.stickRate ?? 1);
+    if (b.stick > STICK_LIMIT) { pmCatch(b, dew); if (b.st) return; }
+  } else b.stick = Math.max(0, b.stick - dt * 1.5);
+  b.stam = Math.min(B.stamina, b.stam + B.regen * dt);
+
+  const [ix, iy] = pmSteer(b), sp = B.speed * PM.walk * slow, k = 1 - Math.exp(-B.accel * dt);
+  b.vx += (ix * sp - b.vx) * k; b.vy += (iy * sp - b.vy) * k;
+  if (dew) { const vm = Math.hypot(b.vx, b.vy); if (vm > sp) { b.vx *= sp / vm; b.vy *= sp / vm; } }
+  b.x += (b.vx + ex) * dt; b.y += (b.vy + ey) * dt;
+  if (b.x < b.r) { b.x = b.r; b.vx = Math.max(0, b.vx); }
+  if (b.x > W - b.r) { b.x = W - b.r; b.vx = Math.min(0, b.vx); }
+  const vm = Math.hypot(b.vx, b.vy);
+  if (vm > 8) b.ang = angLerp(b.ang, Math.atan2(b.vy, b.vx), 1 - Math.exp(-12 * dt));
+  b.phase += Math.hypot(b.vx + ex, b.vy + ey) * dt * 0.35;
+}
+
+function pmUpdate(rawDt) {
+  const m = S.pm, dt = m.sel ? rawDt * PM.slowMo : rawDt;
+  S.time += dt;
+  if (m.active) m.t += dt;
+  while (m.queue.length && m.queue[0].t <= m.t) pmSpawn(m.queue.shift().type);
+
+  for (const p of m.lv.plants) {
+    let near = null;   // only an open flytrap needs to know what is in range
+    if (p.type === 'flytrap' && p.state === 'open') near = m.bugs.find((b) => pmFree(b) && dist(p.x, p.y, b.x, b.y) < p.trig) || null;
+    updatePlant(p, dt, near);
+  }
+
+  for (const b of m.bugs) {
+    if (b.gone) { b.gone += dt; continue; }
+    if (b.st) { pmStruggle(b, dt); continue; }
+    pmMoveBug(b, dt);
+    if (b.st || b.y >= PM.goalY) continue;
+    const dmg = AI[b.type].damage;
+    m.hp = Math.max(0, m.hp - dmg); m.leaked++; b.gone = 1;   // already past the fade-out, so it just vanishes
+    addText(b.x, PM.goalY + 14, `-${dmg} ❤️`, '#ff8a7a');
+    burst(b.x, PM.goalY, '#ff6a55', 8); SFX.tired();
+    if (m.hp <= 0) { pmEnd(false); return; }
+  }
+  m.bugs = m.bugs.filter((b) => b.gone < 0.6);
+
+  if (m.active && !m.queue.length && !m.bugs.length) {
+    m.active = false; m.wave++;
+    if (m.wave >= m.C.waves.length) { pmEnd(true); return; }
+    m.nutrients += PM.waveBonus;
+    addText(200, 400, `Wave cleared! +${PM.waveBonus} 🌱`, '#e6ffb0');
+    SFX.cp();
+  }
+}
+
+function pmEnd(won) {
+  const m = S.pm;
+  S.mode = 'result'; pmCloseSheet();
+  $('hud').classList.add('hidden'); $('pmBar').classList.add('hidden');
+  const stars = won ? 1 + (m.hp >= m.C.hp / 2 ? 1 : 0) + (m.hp === m.C.hp ? 1 : 0) : 0;
+  $('resTitle').textContent = won ? 'The bog held!' : 'The bog was overrun.';
+  $('resStars').innerHTML = starHTML(stars);
+  $('resText').textContent = `Eaten ${m.eaten} · Got through ${m.leaked} · Broke free ${m.escapes}`;
+  $('resPoints').textContent = `Bog health ${m.hp}/${m.C.hp}`;
+  $('resNext').classList.add('hidden');
+  if (won) SFX.win();
+  show('result');
+}
+
+// Input and menus
+function pmTap(cx, cy) {
+  const m = S.pm, { s, ox, oy } = m.view, x = (cx - ox) / s, y = (cy - oy) / s;
+  let best = null, bd = PM.tapR;
+  for (const pl of m.plots) { const d = dist(x, y, pl.x, pl.y); if (d < bd) { best = pl; bd = d; } }
+  if (best) pmOpenSheet(best); else pmCloseSheet();
+}
+
+function pmCloseSheet() { S.pm.sel = null; $('pmSheet').classList.add('hidden'); }
+
+function pmSpend(cost) {
+  const m = S.pm;
+  if (m.nutrients < cost) return false;
+  m.nutrients -= cost; SFX.cp();
+  return true;
+}
+
+function pmPlant(plot, type) {
+  const m = S.pm, D = PM_PLANTS[type];
+  if (plot.plant || !pmSpend(D.cost)) return;
+  plot.plant = Object.assign(makePlant(type, plot.x, plot.y, m.R), { held: [], cap: D.cap, lvl: 0, digest: PM.digest, closedT: PM.closed });
+  if (type === 'flytrap') plot.plant.kill = 56;   // AI bugs don't steer back out, so a miss here is just a wasted snap
+  m.lv.plants.push(plot.plant);
+  burst(plot.x, plot.y, '#c8f37a', 12);
+  pmCloseSheet();
+}
+
+function pmUpgrade(plot) {
+  const p = plot.plant, u = PM_PLANTS[p.type].path[p.lvl];
+  if (!u || !pmSpend(u.cost)) return;
+  u.apply(p); p.lvl++;
+  burst(p.x, p.y, '#f2c14e', 12);
+  pmOpenSheet(plot);
+}
+
+function pmGrip(plot) {
+  const m = S.pm;
+  if (m.grip >= PM.gripCost.length || !pmSpend(PM.gripCost[m.grip])) return;
+  m.grip++;
+  pmOpenSheet(plot);
+}
+
+function pmRow(name, eff, lvl, max, cost, buy) {
+  const row = document.createElement('div'); row.className = 'evo-row';
+  const pips = Array.from({ length: max }, (_, i) => `<i class="${i < lvl ? 'on' : ''}"></i>`).join('');
+  row.innerHTML = `<b>${name}</b><div class="pips">${pips}</div><div class="eff">${eff}</div>`;
+  const btn = document.createElement('button');
+  btn.textContent = cost === null ? 'Maxed' : `🌱 ${cost}`;
+  if (cost === null) btn.disabled = true; else { btn.dataset.cost = cost; btn.onclick = buy; }
+  row.appendChild(btn);
+  return row;
+}
+
+// A plant for a small thumbnail: range circles trimmed, because the thumbnail's canvas would clip them.
+function pmArt(type) {
+  const art = makePlant(type, 0, 0, rng(5));
+  if (type === 'flytrap') art.trig = 0;
+  if (type === 'pitcher') art.pull = art.mouth;
+  if (type === 'bladder') { art.t = BW.idle + BW.charge * 0.6; art.suck = 60; }
+  return art;
+}
+
+function pmOpenSheet(plot) {
+  const m = S.pm, p = plot.plant, body = $('pmSheetBody');
+  m.sel = plot;
+  body.innerHTML = '';
+  if (p) {
+    const D = PM_PLANTS[p.type], u = D.path[p.lvl], list = document.createElement('div');
+    list.className = 'evo-list';
+    $('pmSheetTitle').textContent = D.name;
+    list.appendChild(u ? pmRow(u.name, u.eff, p.lvl, D.path.length, u.cost, () => pmUpgrade(plot))
+      : pmRow('Fully grown', 'Nothing left to upgrade', p.lvl, D.path.length, null));
+    const gmax = PM.gripCost.length;
+    list.appendChild(pmRow('Grip', 'All plants: bugs escape less often', m.grip, gmax, m.grip < gmax ? PM.gripCost[m.grip] : null, () => pmGrip(plot)));
+    body.appendChild(list);
+  } else {
+    const grid = document.createElement('div'); grid.className = 'pm-grid';
+    $('pmSheetTitle').textContent = 'Plant here';
+    for (const [type, D] of Object.entries(PM_PLANTS)) {
+      const btn = document.createElement('button');
+      btn.id = `pm-${type}`; btn.className = 'pm-card'; btn.dataset.cost = D.cost;
+      const art = pmArt(type);
+      const k = { flytrap: 0.42, sundew: 0.38, pitcher: 0.33, bladder: 0.24 }[type];
+      btn.appendChild(thumb((g) => { g.scale(k, k); drawPlant(g, art); }, 44));
+      const t = document.createElement('div');
+      t.innerHTML = `${D.name}<small>${D.desc}</small><small>🌱 ${D.cost}</small>`;
+      btn.appendChild(t);
+      btn.onclick = () => pmPlant(plot, type);
+      grid.appendChild(btn);
+    }
+    body.appendChild(grid);
+  }
+  // Keep the chosen plot in view: the sheet sits on the far side of the screen from it.
+  $('pmSheet').classList.toggle('top', m.view.oy + plot.y * m.view.s > cssH / 2);
+  $('pmSheet').classList.remove('hidden');
+  pmAfford();
+}
+
+// Update what can be bought in place. Rebuilding the buttons here could swallow a tap in progress.
+function pmAfford() {
+  const n = S.pm.nutrients;
+  $('pmSheetNut').textContent = `🌱 ${n}`;
+  for (const b of $('pmSheetBody').querySelectorAll('[data-cost]')) b.disabled = n < +b.dataset.cost;
+}
+
+function pmHUD() {
+  const m = S.pm, waves = m.C.waves, n = Math.min(m.wave + 1, waves.length);
+  const left = m.queue.length + m.bugs.filter((b) => !b.gone).length;
+  let next = '';
+  if (!m.active && m.wave < waves.length) {
+    const count = {};
+    for (const w of waves[m.wave]) count[w.bug] = (count[w.bug] || 0) + w.n;
+    next = `Start wave ${m.wave + 1} · ` + Object.entries(count).map(([k, v]) => `${BUGS[k].emoji}${v}`).join(' ');
+  }
+  const vals = {
+    name: `${LEVELS[m.C.level].name} · Wave ${n}/${waves.length}`,
+    bar: (m.hp / m.C.hp * 100).toFixed(1) + '%',
+    drops: `🌱${m.nutrients}`, lives: `❤️${m.hp}`, next, tip: `${left} ${left === 1 ? 'bug' : 'bugs'} left`,
+  };
+  if (vals.name !== hudCache.name) $('hudName').textContent = vals.name;
+  if (vals.bar !== hudCache.bar) $('hudBar').style.width = vals.bar;
+  if (vals.drops !== hudCache.drops) { $('hudDrops').textContent = vals.drops; if (m.sel) pmAfford(); }
+  if (vals.lives !== hudCache.lives) $('hudLives').textContent = vals.lives;
+  if (vals.next !== hudCache.next) {
+    $('pmWave').textContent = next;
+    $('pmWave').classList.toggle('hidden', !next); $('pmTip').classList.toggle('hidden', !!next);
+  }
+  if (vals.tip !== hudCache.tip) $('pmTip').textContent = vals.tip;
+  hudCache = vals;
+}
+
+// Drawing
+function drawPlot(g, m, pl) {
+  g.fillStyle = 'rgba(66,42,20,0.8)'; g.beginPath(); g.ellipse(pl.x, pl.y, 34, 26, 0, 0, TAU); g.fill();
+  if (pl === m.sel) { g.strokeStyle = '#f2c14e'; g.lineWidth = 3; g.beginPath(); g.ellipse(pl.x, pl.y, 42, 34, 0, 0, TAU); g.stroke(); }
+  if (pl.plant) return;
+  const canBuy = m.nutrients >= Math.min(...Object.values(PM_PLANTS).map((D) => D.cost));
+  const a = canBuy ? 0.65 + 0.3 * Math.sin(T * 4) : 0.3;
+  g.strokeStyle = `rgba(255,255,255,${a})`; g.lineWidth = 2; g.setLineDash([5, 5]);
+  g.beginPath(); g.ellipse(pl.x, pl.y, 34, 26, 0, 0, TAU); g.stroke(); g.setLineDash([]);
+  g.lineWidth = 4; g.lineCap = 'round'; g.beginPath();
+  g.moveTo(pl.x - 9, pl.y); g.lineTo(pl.x + 9, pl.y); g.moveTo(pl.x, pl.y - 9); g.lineTo(pl.x, pl.y + 9); g.stroke();
+}
+
+function drawPmBug(g, b) {
+  const st = b.st;
+  let x = b.x, y = b.y, sc = 1, alpha = 1, ang = b.ang, phase = b.phase;
+  if (st) {
+    const k = Math.min(1, st.t / 0.2);
+    x = st.x0 + (st.hx - st.x0) * k + Math.sin(T * 55) * 3 * st.shake;
+    y = st.y0 + (st.hy - st.y0) * k + Math.cos(T * 47) * 2 * st.shake;
+    sc = { flytrap: 0.85, sundew: 1, pitcher: 0.5 + 0.45 * st.prog, bladder: 0.6 + 0.3 * st.prog }[st.p.type];
+    ang += Math.sin(T * 30) * 0.3 * st.shake; phase += T * 20 * st.shake;
+  } else if (b.gone) { const k = Math.min(1, b.gone / 0.6); sc = 1 - k; alpha = 1 - k; }
+  if (b.inv > 0 && Math.floor(T * 14) % 2 === 0) alpha = 0.35;
+  drawBug(g, b.type, x, y, ang, phase, { scale: sc, alpha, armor: b.armor || !BUGS[b.type].armor ? 1 : 0 });
+  if (b.stick > 0.05 && !st && !b.gone) {
+    const k = Math.min(1, b.stick / STICK_LIMIT);
+    g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillRect(b.x - 16, b.y - 24, 32, 5);
+    g.fillStyle = k > 0.7 ? '#ff5a4a' : '#ff9ac0'; g.fillRect(b.x - 16, b.y - 24, 32 * k, 5);
+  }
+}
+
+// Yellow ring: the bug's escape meter. Thin red ring: time before it is digested.
+function drawPmMeter(g, b) {
+  const st = b.st, R = 24;
+  g.lineCap = 'round';
+  g.lineWidth = 6; g.strokeStyle = 'rgba(0,0,0,0.5)'; g.beginPath(); g.arc(st.hx, st.hy, R, 0, TAU); g.stroke();
+  g.strokeStyle = '#f2c14e'; g.beginPath(); g.arc(st.hx, st.hy, R, -Math.PI / 2, -Math.PI / 2 + TAU * st.prog); g.stroke();
+  g.lineWidth = 2.5; g.strokeStyle = 'rgba(255,120,100,0.9)';
+  g.beginPath(); g.arc(st.hx, st.hy, R + 6, -Math.PI / 2, -Math.PI / 2 + TAU * (1 - st.t / st.limit)); g.stroke();
+}
+
+function pmRender() {
+  const g = ctx, m = S.pm, lv = m.lv, th = THEMES[LEVELS[lv.i].theme], { s, ox, oy } = m.view;
+  g.setTransform(dpr, 0, 0, dpr, 0, 0);
+  g.fillStyle = th.side; g.fillRect(0, 0, cssW, cssH);
+  g.save();
+  g.translate(ox, oy); g.scale(s, s);
+  const top = -oy / s, bot = (cssH - oy) / s;
+  g.beginPath(); g.rect(0, top, W, bot - top); g.clip();
+  drawTerrain(g, lv, th, top, bot);
+  for (const pl of m.plots) drawPlot(g, m, pl);
+  for (const p of lv.plants) drawPlant(g, p);
+  for (const b of m.bugs) drawPmBug(g, b);
+  for (const p of lv.plants) if (p.type === 'flytrap' && p.held.length) drawFlytrap(g, p);   // jaws close over the bug
+  for (const pl of m.plots) {
+    if (!pl.plant) continue;
+    for (let i = 0; i < pl.plant.lvl; i++) { g.fillStyle = '#f2c14e'; g.beginPath(); g.arc(pl.x + (i - 1) * 11, pl.y + 34, 4, 0, TAU); g.fill(); }
+  }
+  for (const b of m.bugs) if (b.st) drawPmMeter(g, b);
+  for (const p of S.particles) { g.globalAlpha = Math.max(0, p.life / p.max); g.fillStyle = p.color; g.beginPath(); g.arc(p.x, p.y, p.size, 0, TAU); g.fill(); }
+  g.globalAlpha = 1;
+  g.restore();
+  drawFloatText(g, ox, oy, s);
+}
+
+$('pmWave').onclick = () => { audioInit(); pmStartWave(); };
+$('pmClose').onclick = pmCloseSheet;
+
+// ---------------------------------------------------------------------------
 // Main loop
 // ---------------------------------------------------------------------------
 let last = performance.now();
@@ -1282,10 +1865,11 @@ function frame(now) {
   const dt = Math.min(0.033, Math.max(0, (now - last) / 1000)); last = now;
   T = now / 1000;
   if (S.mode === 'play') update(dt);
+  else if (S.mode === 'plant') pmUpdate(dt);
   else if (S.mode !== 'pause') ambient(dt);
   updateFx(dt);
-  render();
-  updateHUD();
+  if (S.pm) { pmRender(); pmHUD(); }
+  else { render(); updateHUD(); }
   requestAnimationFrame(frame);
 }
 

@@ -1,6 +1,7 @@
 # Scuttle
 
-A portrait, touch-first game for iPhone: guide a bug across landscapes full of carnivorous plants without getting eaten.
+A portrait, touch-first game for iPhone with two sides. As the **Bug**, guide one bug across landscapes full of carnivorous
+plants without getting eaten. As the **Plant**, defend the bog: plant carnivorous plants and eat waves of AI bugs before they cross.
 
 It is a single self-contained HTML5 canvas page (`index.html`): no build step, no dependencies, no assets beyond the home-screen icons.
 
@@ -12,7 +13,7 @@ It is a single self-contained HTML5 canvas page (`index.html`): no build step, n
 
 On desktop it also runs in any browser, with arrow keys or WASD; `P` or `Esc` pauses.
 
-## How it plays
+## How it plays (bug side)
 
 - **Controls:** drag anywhere. A floating joystick appears under your thumb, so your finger never covers the bug.
 - **Goal:** reach the flower meadow at the top. You have 3 lives and a checkpoint halfway.
@@ -72,13 +73,70 @@ The bug's halo shifts colour and it grows slightly as it evolves.
 
 Each layout is generated from a fixed seed, so a landscape is the same every time you play it.
 
+## Plant mode
+
+Pick **Plant** on the menu. The whole bog fits on one screen, so nothing scrolls.
+
+- **Goal:** survive all 3 waves on Sunny Bog. Each bug that reaches the flowers drains the bog's 20 health (ants and flies 1, beetles 3). At 0 you lose.
+- **Controls:** tap a soil patch to pick a plant. Tap a plant to upgrade it. Tap **Start wave** when you're ready. Time runs at 30% while a plant menu is open.
+- **Money:** you start with 170 nutrients. An eaten ant pays 12, a fly 14, a beetle 30, and clearing a wave pays 60.
+- **Struggles:** a caught bug fights on its own. The yellow ring is its escape meter and the thin red ring is the time before it's digested.
+  Bugs tire: every struggle tap costs the same stamina as in bug mode, so a bug that has already escaped once has less left.
+- **Beetles** shrug off their first bite, as they do on the bug side.
+- **Upgrades reset each run.** All four plants are available on Sunny Bog.
+
+### Plants and upgrades (bought in order)
+
+| Plant (cost) | Holds | Upgrade 1 | Upgrade 2 | Upgrade 3 |
+|---|---|---|---|---|
+| Venus flytrap (50) | 1 | Bigger trigger zone (40) | Faster snap (60) | Shorter digest (90) |
+| Sundew (40) | 2 | Wider rosette (35) | Stickier (55) | Slower bugs inside (80) |
+| Pitcher plant (65) | 2 | Wider scent pull (40) | Stronger pull (60) | Wider mouth (85) |
+| Bladderwort (55) | 2 | Faster cycle (45) | Bigger suction (65) | Stronger burst (90) |
+
+**Grip** (45 / 75 / 120) is bought from any plant's menu and applies to all of them. Chance a bug at full stamina breaks free of a flytrap, measured over 3,000 struggles per cell (other plants are within a few points):
+
+| Grip level | Ant | Beetle | Fly |
+|---|---|---|---|
+| 0 | 30% | 42% | 18% |
+| 1 | 17% | 32% | 9% |
+| 2 | 8% | 17% | 4% |
+| 3 | 3% | 9% | 0% |
+
+### Waves on Sunny Bog
+
+| Wave | Bugs |
+|---|---|
+| 1 | 8 ants |
+| 2 | 10 ants, 6 flies |
+| 3 | 12 ants, 8 flies, 4 beetles |
+
+### How the bugs move
+
+AI bugs walk at 55% of their `BUGS` speed, because at full speed they outrun every trap. They head for the top and sidestep threats ahead of them
+according to their `AI.aware` stat: ants dodge the most, flies barely, and beetles not at all. They never stop, so a wave can't stall.
+
+## Tests
+
+The game has no dependencies. The tests do, and they live in `tests/`:
+
+```bash
+cd tests && npm install && npx playwright install webkit
+```
+
+- `npm test` runs `bug-mode-unchanged.mjs` (replays scripted play through the pre-plant-mode build and this one, and compares every frame) and `plant-mode.mjs` (real taps in WebKit at five iPhone sizes).
+- `npm run balance` plays full games with scripted players and measures struggle odds.
+
 ## Code map (`index.html`)
 
 - `BUGS`, `GRIP`, `EVO` / `EVO_COST`, `LEVELS`, `THEMES`, `FT` / `BW` (timings): every tuning knob lives in these tables at the top of the script.
+- `PM`, `AI`, `PM_PLANTS`, `PM_LEVELS`: the same for plant mode, including waves, prices and upgrades.
 - `buildLevel()`: seeded placement of plant rows (the checkpoint band is always kept clear), dew drops and decor.
 - `update()` / `updatePlant()` / `catchBug()`: movement, plant behaviour and death/respawn.
 - `struggleTap()` / `updateStruggle()` / `escapeFrom()`: the tap-to-escape minigame. `stats()` applies evolution upgrades.
 - `draw*()`: all art is drawn procedurally on canvas.
+- `pm*()`: plant mode. `pmUpdate()` runs a frame, `pmSteer()` / `pmMoveBug()` move AI bugs, `pmCatch()` / `pmStruggle()` handle caught bugs,
+  `pmOpenSheet()` is the plant menu and `pmRender()` draws the bog. `updatePlant()`, `bladderPhase()`, `trapOpen()` and the `draw*()` functions are shared with bug mode.
 
 ## Going native later
 

@@ -1,4 +1,17 @@
-# Plant mode (planned, not built)
+# Plant mode
+
+**Status, 2026-11-04:** built for Sunny Bog with 3 waves. This is the design note; `README.md` has the numbers as shipped.
+Other landscapes aren't built yet.
+
+## What changed while building it
+
+- **AI bugs walk at 55% of their `BUGS` speed.** At full speed they crossed a flytrap's zone during its 0.5 s warning, so traps almost never caught anything.
+- **Plants digest in 55% of the `GRIP` time limit,** and flytraps stay shut for 0.8 s instead of 2.2 s, so one plant can eat often enough to matter.
+- **Pitcher pull runs at 80%,** because it competes with the slower walking speed. Bladderwort bursts stay at full strength because they only last 0.45 s.
+- **Sundews have a stronger base hold (1.35x),** or bugs almost always escaped them.
+- **Plants can hold more than one bug:** sundews, pitchers and bladderworts hold 2, flytraps hold 1.
+- **All four plants are available on Sunny Bog,** even though only two grow there on the bug side, so every upgrade path is in play.
+- **Time runs at 30% while a plant menu is open,** so reading a menu on a phone doesn't cost you the bog.
 
 Players choose a side on the menu: **Bug** (the current game) or **Plant**, a defend-the-base mode. Real carnivorous
 plants grow in nutrient-poor bogs and get their nitrogen from insects, so nutrients are the plant side's currency.
@@ -30,7 +43,6 @@ plants grow in nutrient-poor bogs and get their nitrogen from insects, so nutrie
 
 ## Open questions for the designer
 
-- Fixed plots or free placement? Fixed plots are recommended first, because they are easier to balance and to use on a phone.
-- Should plant upgrades carry over between runs, like bug evolution? Recommended: in-run upgrades, plus permanent
-  unlocks (new species, starting nutrients) bought with a separate currency.
+- Settled: fixed plots, and in-run upgrades that reset each run.
+- Should there also be permanent unlocks (new species, starting nutrients) bought with a separate currency? Not built.
 - Should anything link the two sides? For example, a plant-mode win could unlock a landscape or species in bug mode.

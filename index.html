@@ -62,7 +62,8 @@
     min-height: 48px; touch-action: manipulation;
   }
   button.secondary { background: var(--chip); color: var(--ink); border: 1px solid var(--line); }
-  button:disabled { opacity: 0.4; }
+  button:disabled { opacity: 1; background: var(--chip); color: rgba(255, 255, 255, 0.35); border: 1px solid var(--line); }
+  .level-btn:disabled { opacity: 0.45; }
   .row { display: flex; gap: 10px; }
   .row > * { flex: 1; }
 
@@ -102,6 +103,26 @@
   #hud .bar i { display: block; height: 100%; width: 0; background: var(--accent); }
   #hud .stat { min-width: 44px; text-align: right; white-space: nowrap; }
 
+  #hud .bar.stam { height: 5px; }
+  #hud .bar.stam i { background: #7fe08a; transition: background 0.2s; }
+  #hud .bar.stam i.low { background: #ff6a55; }
+
+  .evo-btn { width: 100%; margin-top: 12px; display: flex; justify-content: space-between; align-items: center; }
+  .evo-head { display: flex; gap: 14px; align-items: center; }
+  .evo-head canvas { width: 64px; height: 64px; flex: none; border-radius: 16px; background: rgba(0,0,0,0.25); }
+  .evo-points { margin: 4px 0 0; color: var(--muted); }
+  .evo-points b { color: var(--accent); font-variant-numeric: tabular-nums; }
+  .evo-list { display: flex; flex-direction: column; gap: 10px; margin-top: 16px; }
+  .evo-row { display: grid; grid-template-columns: 1fr auto; gap: 4px 12px; align-items: center; padding: 12px; border-radius: 14px; background: var(--chip); border: 1px solid var(--line); }
+  .evo-row b { font-size: 16px; }
+  .evo-row .eff { grid-column: 1; color: var(--muted); font-size: 13px; }
+  .evo-row .pips { grid-column: 1; display: flex; gap: 4px; }
+  .evo-row .pips i { width: 18px; height: 6px; border-radius: 3px; background: rgba(255,255,255,0.15); }
+  .evo-row .pips i.on { background: var(--accent); }
+  .evo-row button { grid-column: 2; grid-row: 1 / span 3; min-height: 44px; padding: 8px 12px; font-size: 15px; white-space: nowrap; }
+  .lv-tag { font-size: 12px; font-weight: 600; color: var(--accent); }
+  #resPoints { color: var(--accent); font-weight: 700; margin: 0; }
+
   #resStars { font-size: 44px; text-align: center; color: var(--accent); letter-spacing: 6px; margin: 8px 0; }
   #resStars .off { color: rgba(255, 255, 255, 0.15); }
   .center { text-align: center; }
@@ -116,6 +137,7 @@
   <div class="mid">
     <div class="lvname" id="hudName"></div>
     <div class="bar"><i id="hudBar"></i></div>
+    <div class="bar stam" aria-label="Stamina"><i id="hudStam"></i></div>
   </div>
   <div class="stat" id="hudDrops">💧0</div>
   <div class="stat" id="hudLives"></div>
@@ -128,6 +150,7 @@
     <h2>Pick your bug</h2>
     <div class="row" id="bugRow"></div>
     <p class="bug-desc" id="bugDesc"></p>
+    <button class="secondary evo-btn" id="evoOpen"></button>
     <h2>Pick a landscape</h2>
     <div class="levels" id="levelList"></div>
   </div>
@@ -159,11 +182,27 @@
     <h1 id="resTitle" style="font-size:34px"></h1>
     <div id="resStars"></div>
     <p id="resText"></p>
+    <p id="resPoints"></p>
     <div class="stack">
       <button id="resNext">Next landscape</button>
       <button class="secondary" id="resRetry">Retry</button>
       <button class="secondary" id="resMenu">Menu</button>
     </div>
+  </div>
+</div>
+
+<div id="evolve" class="overlay hidden">
+  <div class="panel">
+    <div class="evo-head">
+      <div id="evoThumb"></div>
+      <div>
+        <h1 id="evoTitle" style="font-size:30px"></h1>
+        <p class="evo-points">🧬 <b id="evoPoints">0</b> evo points</p>
+      </div>
+    </div>
+    <div class="evo-list" id="evoList"></div>
+    <p class="hint">Earn evo points from dew drops (kept even if you get eaten) and by finishing landscapes. Upgrades belong to this bug only.</p>
+    <button id="evoBack" style="width:100%">Done</button>
   </div>
 </div>
 
@@ -194,10 +233,36 @@ function angLerp(a, b, k) {
 // Content
 // ---------------------------------------------------------------------------
 const BUGS = {
-  ant:    { name: 'Ant',    emoji: '🐜', speed: 140, accel: 14,  r: 9,  armor: 0, desc: 'Nimble and steady. Goes exactly where you point it.' },
-  beetle: { name: 'Beetle', emoji: '🪲', speed: 108, accel: 10,  r: 11, armor: 1, desc: 'Slow, but its shell survives one bite per life.' },
-  fly:    { name: 'Fly',    emoji: '🪰', speed: 180, accel: 3.2, r: 8,  armor: 0, desc: 'Very fast, but it drifts. Hard to stop on a dime.' },
+  // stamina: max pool; regen: per second while free; grip: escape gained per tap (x plant base)
+  ant:    { name: 'Ant',    emoji: '🐜', speed: 140, accel: 14,  r: 9,  armor: 0, stamina: 100, regen: 7, grip: 1.0,
+            desc: 'Nimble and steady. Goes exactly where you point it.' },
+  beetle: { name: 'Beetle', emoji: '🪲', speed: 108, accel: 10,  r: 11, armor: 1, stamina: 120, regen: 6, grip: 1.15,
+            desc: 'Slow and strong. Its shell shrugs off the first bite each life.' },
+  fly:    { name: 'Fly',    emoji: '🪰', speed: 180, accel: 3.2, r: 8,  armor: 0, stamina: 80,  regen: 9, grip: 0.9,
+            desc: 'Very fast, but it drifts and tires quickly when caught.' },
 };
+
+// Getting caught starts a struggle: tap fast to fill the escape meter before the plant digests you.
+// gain = meter per tap, decay = meter lost per second, limit = seconds before you are eaten.
+const GRIP = {
+  flytrap: { gain: 0.10, decay: 0.15, limit: 3.5, verb: 'Pry the jaws open!' },
+  sundew:  { gain: 0.12, decay: 0.10, limit: 4.0, verb: 'Rip free of the goo!' },
+  pitcher: { gain: 0.09, decay: 0.16, limit: 4.5, verb: 'Climb out of the pit!' },
+  bladder: { gain: 0.10, decay: 0.18, limit: 3.5, verb: 'Kick out of the bladder!' },
+};
+const TAP_COST = 4;          // stamina per struggle tap
+const DEW_STAMINA = 8;       // stamina restored per dew drop
+
+// Evolution: per-bug upgrades bought with evo points.
+const EVO = [
+  { key: 'speed',    name: 'Longer legs',      eff: (l) => `+${l * 6}% speed` },
+  { key: 'strength', name: 'Strong mandibles', eff: (l) => `+${l * 12}% escape per tap` },
+  { key: 'stamina',  name: 'Fat reserves',     eff: (l) => `+${l * 20} max stamina` },
+  { key: 'recovery', name: 'Fast metabolism',  eff: (l) => `+${l * 25}% stamina regen` },
+  { key: 'coat',     name: 'Waxy coat',        eff: (l) => `${l * 10}% less sticking & pull` },
+];
+const EVO_MAX = 5;
+const EVO_COST = [8, 15, 25, 40, 60];   // cost of going from level n to n+1
 
 const FT = { warn: 0.5, snap: 0.12, closed: 2.2, opening: 0.6 };   // flytrap timings (s)
 const BW = { idle: 1.6, charge: 1.25, burst: 0.45 };               // bladderwort cycle (s)
@@ -206,7 +271,7 @@ const STICK_LIMIT = 2.2;                                          // seconds in 
 
 const PLANT_INFO = {
   flytrap: ['Venus flytrap', 'Snaps shut when you get close. Bait it, back off, then slip past while it is shut (green ring = safe time left).'],
-  sundew:  ['Sundew', 'Sticky tentacles slow you right down. Linger too long and you are stuck for good.'],
+  sundew:  ['Sundew', 'Sticky tentacles slow you right down. Linger too long and you get stuck, and have to struggle free.'],
   pitcher: ['Pitcher plant', 'Its sweet scent drags you toward the pit. Steer against the pull.'],
   bladder: ['Bladderwort', 'Charges under the water (shrinking ring, bubbles), then sucks in everything nearby.'],
 };
@@ -233,9 +298,25 @@ const THEMES = {
 // Save data
 // ---------------------------------------------------------------------------
 const SAVE_KEY = 'scuttle.v1';
-let save = { unlocked: 1, stars: [0, 0, 0, 0], bug: 'ant', last: 0 };
+let save = { unlocked: 1, stars: [0, 0, 0, 0], bug: 'ant', last: 0, points: 0, evo: {} };
 try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s) save = Object.assign(save, s); } catch (e) {}
+for (const k of Object.keys(BUGS)) {
+  save.evo[k] = Object.assign(Object.fromEntries(EVO.map((u) => [u.key, 0])), save.evo[k] || {});
+}
 function persist() { try { localStorage.setItem(SAVE_KEY, JSON.stringify(save)); } catch (e) {} }
+
+// Effective stats for a bug after evolution.
+function stats(type) {
+  const B = BUGS[type], e = save.evo[type];
+  return {
+    speed: B.speed * (1 + 0.06 * e.speed),
+    grip: B.grip * (1 + 0.12 * e.strength),
+    maxStam: B.stamina + 20 * e.stamina,
+    regen: B.regen * (1 + 0.25 * e.recovery),
+    coat: 1 - 0.1 * e.coat,
+    tier: EVO.reduce((n, u) => n + e[u.key], 0),
+  };
+}
 
 // ---------------------------------------------------------------------------
 // Audio (tiny synth; iOS unlocks it on first touch)
@@ -262,6 +343,9 @@ const SFX = {
   crack:  () => tone(520, 0.15, 'square', 0.06, 140),
   cp:     () => tone(660, 0.22, 'triangle', 0.08, 990),
   suck:   () => tone(140, 0.4, 'sine', 0.05, 45),
+  tap:    (k) => tone(380 + k * 520, 0.05, 'square', 0.035),
+  free:   () => { tone(520, 0.12, 'triangle', 0.08, 1040); setTimeout(() => tone(780, 0.15, 'triangle', 0.07, 1300), 90); },
+  tired:  () => tone(160, 0.18, 'sine', 0.06, 110),
   win:    () => [523, 659, 784, 1046].forEach((f, i) => setTimeout(() => tone(f, 0.2, 'triangle', 0.09), i * 110)),
 };
 
@@ -338,13 +422,13 @@ function buildLevel(i) {
 const S = {
   mode: 'menu', level: save.last || 0, bugType: save.bug in BUGS ? save.bug : 'ant',
   lv: null, bug: null, lives: 3, deaths: 0, time: 0, dropsGot: 0, cpReached: false,
-  caught: null, caughtT: 0, camY: 0, particles: [], texts: [],
+  caught: null, caughtT: 0, struggle: null, camY: 0, particles: [], texts: [], earned: 0,
 };
 window.__scuttle = S; // handy for debugging in the console
 
 function newBug(x, y) {
   const B = BUGS[S.bugType];
-  return { x, y, r: B.r, vx: 0, vy: 0, ang: -Math.PI / 2, phase: 0, stick: 0, armor: B.armor, inv: 0 };
+  return { x, y, r: B.r, vx: 0, vy: 0, ang: -Math.PI / 2, phase: 0, stick: 0, armor: B.armor, inv: 0, stam: stats(S.bugType).maxStam };
 }
 function camTarget() {
   const lv = S.lv, b = S.bug;
@@ -359,6 +443,7 @@ const JOY_R = 55;
 const keys = {};
 canvas.addEventListener('pointerdown', (e) => {
   audioInit();
+  if (S.mode === 'play' && S.struggle) { struggleTap(); e.preventDefault(); return; }
   if (S.mode !== 'play' || input.active) return;
   input.active = true; input.id = e.pointerId;
   input.ox = input.px = e.clientX; input.oy = input.py = e.clientY;
@@ -381,6 +466,7 @@ canvas.addEventListener('pointerup', endPointer);
 canvas.addEventListener('pointercancel', endPointer);
 document.addEventListener('touchmove', (e) => { if (e.target === canvas) e.preventDefault(); }, { passive: false });
 window.addEventListener('keydown', (e) => {
+  if (e.key === ' ' && !e.repeat && S.mode === 'play' && S.struggle) { struggleTap(); e.preventDefault(); }
   keys[e.key.toLowerCase()] = true;
   if (e.key === 'Escape' || e.key === 'p') { if (S.mode === 'play') pauseGame(); else if (S.mode === 'pause') resumeGame(); }
 });
@@ -402,6 +488,7 @@ function bladderPhase(p) {
   return { stage: 'burst', k: (t - BW.idle - BW.charge) / BW.burst };
 }
 function trapOpen(p) {
+  if (S.struggle && S.struggle.p === p) return 0.4 * S.struggle.prog;   // jaws pried open as you struggle
   switch (p.state) {
     case 'open': case 'warn': return 1;
     case 'snap': return 1 - Math.min(1, p.t / FT.snap);
@@ -414,6 +501,7 @@ function onScreen(y, pad = 140) { return y > S.camY - pad && y < S.camY + viewH 
 
 function updatePlant(p, dt, b) {
   if (p.type === 'flytrap') {
+    if (S.struggle && S.struggle.p === p) { p.state = 'closed'; p.t = 0; return; }   // holds shut on its prey
     p.t += dt;
     if (p.state === 'open') {
       if (b && dist(p.x, p.y, b.x, b.y) < p.trig) { p.state = 'warn'; p.t = 0; }
@@ -430,12 +518,13 @@ function updatePlant(p, dt, b) {
     if (st === 'burst' && p.last !== 'burst' && onScreen(p.y, 0)) SFX.suck();
     p.last = st;
   } else if (p.type === 'sundew') {
-    if (!(S.caught && S.caught.p === p)) p.curl = Math.max(0, p.curl - dt * 0.4);
+    const holding = (S.caught && S.caught.p === p) || (S.struggle && S.struggle.p === p);
+    if (!holding) p.curl = Math.max(0, p.curl - dt * 0.4);
   }
 }
 
 function catchBug(p) {
-  if (S.caught) return;
+  if (S.caught || S.struggle) return;
   const b = S.bug;
   if (b.armor > 0) {
     b.armor--; b.inv = 1.4; b.stick = 0;
@@ -445,23 +534,80 @@ function catchBug(p) {
     burst(b.x, b.y, '#9fe0c8', 14); SFX.crack();
     return;
   }
-  S.caught = { p, x0: b.x, y0: b.y }; S.caughtT = 0;
+  // Not eaten yet: start a struggle. The bug is held in the plant until it breaks free or is digested.
+  const G = GRIP[p.type];
+  const held = p.type === 'sundew' ? { x: b.x, y: b.y } : { x: p.x, y: p.y };
+  S.struggle = { p, x0: b.x, y0: b.y, hx: held.x, hy: held.y, prog: 0, t: 0, limit: G.limit, shake: 0, tired: false };
+  b.vx = b.vy = 0;
   if (p.type === 'sundew') p.curl = 1;
-  SFX.caught();
+  input.active = false; input.id = null; input.x = input.y = 0;   // fingers now tap instead of steer
+  SFX.snap();
+}
+
+function struggleTap() {
+  const st = S.struggle, b = S.bug;
+  if (!st) return;
+  if (b.stam < TAP_COST) {
+    st.tired = true; SFX.tired();
+    return;
+  }
+  b.stam -= TAP_COST;
+  st.prog = Math.min(1, st.prog + GRIP[st.p.type].gain * stats(S.bugType).grip);
+  st.shake = 1;
+  SFX.tap(st.prog);
+  if (Math.random() < 0.5) burst(st.hx, st.hy, st.p.type === 'bladder' ? '#cdf6ff' : '#e9f7c4', 2);
+}
+
+function updateStruggle(dt) {
+  const st = S.struggle, b = S.bug;
+  st.t += dt;
+  st.shake = Math.max(0, st.shake - dt * 6);
+  if (st.prog >= 1) { escapeFrom(st); return; }
+  st.prog = Math.max(0, st.prog - GRIP[st.p.type].decay * dt);
+  if (st.t >= st.limit) {
+    S.struggle = null;
+    S.caught = { p: st.p, x0: st.hx, y0: st.hy }; S.caughtT = 0;
+    SFX.caught();
+    return;
+  }
+  b.x = st.hx; b.y = st.hy;
+}
+
+function escapeFrom(st) {
+  const b = S.bug, p = st.p;
+  // Pop out away from the plant: back the way you came, or forward (up) if there is no clear direction.
+  let dx = st.x0 - p.x, dy = st.y0 - p.y, d = Math.hypot(dx, dy);
+  if (d < 3) { dx = 0; dy = -1; d = 1; }
+  dx /= d; dy /= d;
+  const out = { flytrap: p.kill + b.r + 8, sundew: (p.r || 0) + b.r + 2, pitcher: p.mouth + b.r + 20, bladder: p.kill + b.r + 30 }[p.type];
+  b.x = clamp(p.x + dx * out, b.r, W - b.r); b.y = p.y + dy * out;
+  b.vx = dx * 220; b.vy = dy * 220; b.stick = 0; b.inv = 1.2;
+  if (p.type === 'flytrap') { p.state = 'opening'; p.t = 0; }
+  if (p.type === 'sundew') p.curl = 0.6;
+  S.struggle = null;
+  addText(b.x, b.y - 24, 'Broke free!', '#c8f37a');
+  burst(b.x, b.y, '#f2c14e', 12); SFX.free();
 }
 
 function respawn() {
   const lv = S.lv;
   S.bug = newBug(200, S.cpReached ? lv.cpY + 20 : lv.startY);
   S.bug.inv = 1.6;
-  S.caught = null;
+  S.caught = null; S.struggle = null;
 }
 
 function update(dt) {
   const lv = S.lv, b = S.bug, B = BUGS[S.bugType];
   S.time += dt;
-  const live = !S.caught && b.inv <= 0;
+  const ST = stats(S.bugType);
+  const live = !S.caught && !S.struggle && b.inv <= 0;
   for (const p of lv.plants) updatePlant(p, dt, live ? b : null);
+
+  if (S.struggle) {
+    updateStruggle(dt);
+    S.camY += (camTarget() - S.camY) * (1 - Math.exp(-5 * dt));
+    return;
+  }
 
   if (S.caught) {
     S.caughtT += dt;
@@ -481,15 +627,15 @@ function update(dt) {
       if (Math.abs(p.y - b.y) > 170) continue;
       const dx = p.x - b.x, dy = p.y - b.y, d = Math.hypot(dx, dy) || 0.001;
       if (p.type === 'sundew') {
-        if (d < p.r + b.r * 0.3) { dew = p; slow = Math.min(slow, 0.38); }
+        if (d < p.r + b.r * 0.3) { dew = p; slow = Math.min(slow, 1 - 0.62 * ST.coat); }
       } else if (p.type === 'pitcher') {
         if (d < p.mouth) { catchBug(p); return; }
-        if (d < p.pull) { const f = 95 * (1 - d / p.pull) + 15; ex += dx / d * f; ey += dy / d * f; }
+        if (d < p.pull) { const f = (95 * (1 - d / p.pull) + 15) * ST.coat; ex += dx / d * f; ey += dy / d * f; }
       } else if (p.type === 'bladder') {
         const ph = bladderPhase(p);
         if (ph.stage === 'burst' && d < p.suck) {
           if (d < p.kill + b.r * 0.3) { catchBug(p); return; }
-          const f = 250 * Math.pow(1 - d / p.suck, 0.8); ex += dx / d * f; ey += dy / d * f;
+          const f = 250 * Math.pow(1 - d / p.suck, 0.8) * ST.coat; ex += dx / d * f; ey += dy / d * f;
         }
       }
     }
@@ -497,11 +643,12 @@ function update(dt) {
   b.inv = Math.max(0, b.inv - dt);
 
   if (dew) {
-    b.stick += dt;
-    if (b.stick > STICK_LIMIT) { catchBug(dew); if (S.caught) return; }
+    b.stick += dt * ST.coat;
+    if (b.stick > STICK_LIMIT) { catchBug(dew); if (S.caught || S.struggle) return; }
   } else b.stick = Math.max(0, b.stick - dt * 1.5);
+  b.stam = Math.min(ST.maxStam, b.stam + ST.regen * dt);
 
-  const sp = B.speed * slow;
+  const sp = ST.speed * slow;
   const k = 1 - Math.exp(-B.accel * dt);
   b.vx += (ix * sp - b.vx) * k; b.vy += (iy * sp - b.vy) * k;
   if (dew) { const vm = Math.hypot(b.vx, b.vy); if (vm > sp) { b.vx *= sp / vm; b.vy *= sp / vm; } }
@@ -517,7 +664,7 @@ function update(dt) {
 
   for (const d of lv.drops) {
     if (!d.got && Math.abs(d.y - b.y) < 30 && dist(d.x, d.y, b.x, b.y) < b.r + 9) {
-      d.got = true; S.dropsGot++; SFX.drop(); burst(d.x, d.y, '#bfe8ff', 6);
+      d.got = true; S.dropsGot++; b.stam = Math.min(ST.maxStam, b.stam + DEW_STAMINA); SFX.drop(); burst(d.x, d.y, '#bfe8ff', 6);
     }
   }
   if (!S.cpReached && b.y < lv.cpY) {
@@ -848,11 +995,22 @@ function render() {
       x = S.caught.x0 + (p.x - S.caught.x0) * k; y = S.caught.y0 + (p.y - S.caught.y0) * k;
       sc = p.type === 'pitcher' || p.type === 'bladder' ? 1 - k * 0.95 : 1 - k * 0.3;
     }
+    const st = S.struggle;
+    if (st) {
+      const k = Math.min(1, st.t / 0.2);
+      x = st.x0 + (st.hx - st.x0) * k + Math.sin(T * 55) * 3 * st.shake;
+      y = st.y0 + (st.hy - st.y0) * k + Math.cos(T * 47) * 2 * st.shake;
+      sc = { flytrap: 0.85, sundew: 1, pitcher: 0.5 + 0.45 * st.prog, bladder: 0.6 + 0.3 * st.prog }[st.p.type];
+    }
     if (b.inv > 0 && Math.floor(T * 14) % 2 === 0) alpha = 0.35;
-    if (!S.caught) glow(g, x, y, 26, 'rgba(255,250,220,0.32)');   // keeps the player readable on dark ground
-    drawBug(g, S.bugType, x, y, b.ang, b.phase, { scale: sc, alpha, armor: b.armor || !B.armor ? 1 : 0 });
+    const tier = stats(S.bugType).tier;
+    // halo keeps the player readable on dark ground; its colour shifts as the bug evolves
+    if (!S.caught) glow(g, x, y, 26 + tier * 0.4, tier ? `hsla(${50 + tier * 9.6},90%,72%,0.4)` : 'rgba(255,250,220,0.32)');
+    drawBug(g, S.bugType, x, y, st ? b.ang + Math.sin(T * 30) * 0.3 * st.shake : b.ang, b.phase + (st ? T * 20 * st.shake : 0),
+      { scale: sc * (1 + tier * 0.006), alpha, armor: b.armor || !B.armor ? 1 : 0 });
     if (S.caught && S.caught.p.type === 'flytrap') drawFlytrap(g, S.caught.p); // jaws close over the bug
-    if (b.stick > 0.05 && !S.caught) {
+    if (st && st.p.type === 'flytrap') drawFlytrap(g, st.p);
+    if (b.stick > 0.05 && !S.caught && !st) {
       const k = b.stick / STICK_LIMIT;
       g.fillStyle = 'rgba(0,0,0,0.45)'; g.fillRect(b.x - 16, b.y - 24, 32, 5);
       g.fillStyle = k > 0.7 ? '#ff5a4a' : '#ff9ac0'; g.fillRect(b.x - 16, b.y - 24, 32 * k, 5);
@@ -864,6 +1022,7 @@ function render() {
   g.restore();
 
   if (L.dark) renderNight(g, lv);
+  if (S.struggle && S.mode === 'play') renderStruggle(g);
 
   // floating text on top of everything (screen space)
   g.font = '700 16px ui-rounded, -apple-system, system-ui, sans-serif'; g.textAlign = 'center';
@@ -878,6 +1037,35 @@ function render() {
     g.strokeStyle = 'rgba(255,255,255,0.35)'; g.lineWidth = 2; g.beginPath(); g.arc(input.ox, input.oy, JOY_R, 0, TAU); g.stroke();
     g.fillStyle = 'rgba(255,255,255,0.3)'; g.beginPath(); g.arc(input.ox + input.x * JOY_R, input.oy + input.y * JOY_R, 22, 0, TAU); g.fill();
   }
+}
+
+function renderStruggle(g) {
+  const st = S.struggle, b = S.bug, ST = stats(S.bugType);
+  const sx = offX + st.hx * scale, sy = (st.hy - S.camY) * scale;
+  const R = 44;
+  g.lineCap = 'round';
+  g.lineWidth = 8; g.strokeStyle = 'rgba(0,0,0,0.45)'; g.beginPath(); g.arc(sx, sy, R, 0, TAU); g.stroke();
+  g.strokeStyle = '#f2c14e'; g.beginPath(); g.arc(sx, sy, R, -Math.PI / 2, -Math.PI / 2 + TAU * st.prog); g.stroke();
+  const left = 1 - st.t / st.limit;   // outer ring: time before you are digested
+  g.lineWidth = 3; g.strokeStyle = left < 0.3 ? '#ff5a4a' : 'rgba(255,140,120,0.8)';
+  g.beginPath(); g.arc(sx, sy, R + 9, -Math.PI / 2, -Math.PI / 2 + TAU * left); g.stroke();
+
+  const pulse = 1 + 0.12 * Math.sin(T * 18);
+  g.textAlign = 'center';
+  g.font = `800 ${Math.round(28 * pulse)}px ui-rounded, -apple-system, system-ui, sans-serif`;
+  g.fillStyle = 'rgba(0,0,0,0.55)'; g.fillText('TAP! TAP!', sx + 2, sy - R - 22);
+  g.fillStyle = '#fff'; g.fillText('TAP! TAP!', sx, sy - R - 24);
+  g.font = '700 14px ui-rounded, -apple-system, system-ui, sans-serif';
+  const spent = b.stam < TAP_COST, line = spent ? 'Out of stamina!' : GRIP[st.p.type].verb;
+  g.fillStyle = 'rgba(0,0,0,0.55)'; g.fillText(line, sx + 1, sy - R - 3);
+  g.fillStyle = spent ? '#ff8a7a' : '#ffe9a8'; g.fillText(line, sx, sy - R - 4);
+
+  const bw = 90, k = b.stam / ST.maxStam;  // stamina under the bug
+  g.fillStyle = 'rgba(0,0,0,0.5)'; g.fillRect(sx - bw / 2, sy + R + 16, bw, 8);
+  g.fillStyle = b.stam < TAP_COST ? '#ff5a4a' : k < 0.3 ? '#ffb347' : '#7fe08a';
+  g.fillRect(sx - bw / 2, sy + R + 16, bw * k, 8);
+  g.font = '600 12px ui-rounded, -apple-system, system-ui, sans-serif'; g.fillStyle = '#fff';
+  g.fillText('stamina', sx, sy + R + 38);
 }
 
 function renderNight(g, lv) {
@@ -923,7 +1111,7 @@ function glow(g, x, y, r, color) {
 // ---------------------------------------------------------------------------
 // UI
 // ---------------------------------------------------------------------------
-function show(id) { for (const o of ['menu', 'intro', 'pause', 'result']) $(o).classList.toggle('hidden', o !== id); }
+function show(id) { for (const o of ['menu', 'intro', 'pause', 'result', 'evolve']) $(o).classList.toggle('hidden', o !== id); }
 function thumb(draw, size = 64) {
   const c = document.createElement('canvas'); const r = 2;
   c.width = size * r; c.height = size * r; c.style.width = size + 'px'; c.style.height = size + 'px';
@@ -938,10 +1126,14 @@ function buildMenu() {
     btn.className = 'bug-card' + (key === S.bugType ? ' sel' : '');
     btn.appendChild(thumb((g) => drawBug(g, key, 0, 2, -Math.PI / 2, 0.8, { scale: 1.9 }), 56));
     btn.appendChild(document.createTextNode(B.name));
+    const tier = stats(key).tier;
+    const tag = document.createElement('span'); tag.className = 'lv-tag';
+    tag.textContent = tier ? `Evo ${tier}` : 'Base'; btn.appendChild(tag);
     btn.onclick = () => { S.bugType = key; save.bug = key; persist(); buildMenu(); };
     row.appendChild(btn);
   }
   $('bugDesc').textContent = BUGS[S.bugType].desc;
+  $('evoOpen').innerHTML = `<span>🧬 Evolve ${BUGS[S.bugType].name}</span><span>${save.points} pts</span>`;
 
   const list = $('levelList'); list.innerHTML = '';
   LEVELS.forEach((L, i) => {
@@ -954,11 +1146,37 @@ function buildMenu() {
   });
 }
 
+function buildEvolve() {
+  const type = S.bugType, B = BUGS[type], e = save.evo[type], st = stats(type);
+  const th = $('evoThumb'); th.innerHTML = '';
+  th.appendChild(thumb((g) => drawBug(g, type, 0, 2, -Math.PI / 2, 0.8, { scale: 2.1 * (1 + st.tier * 0.006) })));
+  $('evoTitle').textContent = `Evolve ${B.name}`;
+  $('evoPoints').textContent = save.points;
+  const list = $('evoList'); list.innerHTML = '';
+  for (const u of EVO) {
+    const lvl = e[u.key], maxed = lvl >= EVO_MAX, cost = maxed ? 0 : EVO_COST[lvl];
+    const row = document.createElement('div'); row.className = 'evo-row';
+    const pips = Array.from({ length: EVO_MAX }, (_, i) => `<i class="${i < lvl ? 'on' : ''}"></i>`).join('');
+    row.innerHTML = `<b>${u.name}</b><div class="pips">${pips}</div>` +
+      `<div class="eff">${maxed ? `${u.eff(lvl)} (max)` : lvl ? `${u.eff(lvl)} · next ${u.eff(lvl + 1)}` : `Next: ${u.eff(1)}`}</div>`;
+    const btn = document.createElement('button');
+    btn.id = `evo-${u.key}`;
+    btn.textContent = maxed ? 'Maxed' : `Upgrade · ${cost}`;
+    btn.disabled = maxed || save.points < cost;
+    btn.onclick = () => {
+      if (save.points < cost || maxed) return;
+      save.points -= cost; e[u.key]++; persist(); SFX.cp(); buildEvolve();
+    };
+    row.appendChild(btn);
+    list.appendChild(row);
+  }
+}
+
 function startLevel(i) {
   S.level = i; save.last = i; persist();
   S.lv = buildLevel(i);
   S.lives = 3; S.deaths = 0; S.time = 0; S.dropsGot = 0; S.cpReached = false;
-  S.caught = null; S.particles = []; S.texts = [];
+  S.caught = null; S.struggle = null; S.particles = []; S.texts = [];
   S.bug = newBug(200, S.lv.startY);
   S.camY = camTarget();
   input.active = false; input.x = input.y = 0;
@@ -983,8 +1201,8 @@ function startLevel(i) {
     body.appendChild(item);
   }
   $('introHint').textContent = i === 0
-    ? 'Drag anywhere on the screen to steer (the joystick appears under your thumb). Reach the flowers at the top. Collect dew 💧 for stars.'
-    : `Playing as ${BUGS[S.bugType].emoji} ${BUGS[S.bugType].name}. 3 lives, checkpoint halfway.`;
+    ? 'Drag anywhere to steer (the joystick appears under your thumb). Reach the flowers at the top. Caught? Tap the screen as fast as you can to break free. Every tap burns stamina, so don\'t get caught twice in a row.'
+    : `Playing as ${BUGS[S.bugType].emoji} ${BUGS[S.bugType].name}. 3 lives, checkpoint halfway. Caught? Tap fast to break free.`;
   S.mode = 'intro'; show('intro');
   $('hud').classList.add('hidden');
 }
@@ -998,8 +1216,10 @@ function endLevel(won) {
   S.mode = 'result'; $('hud').classList.add('hidden'); input.active = false;
   const total = S.lv.drops.length, got = S.dropsGot;
   const i = S.level;
+  let pts = got;                                  // every dew drop is an evo point, win or lose
   if (won) {
     const stars = 1 + (got >= Math.ceil(total * 0.6) ? 1 : 0) + (S.deaths === 0 ? 1 : 0);
+    pts += 10 + 5 * Math.max(0, stars - (save.stars[i] || 0));   // finish bonus + new stars
     save.stars[i] = Math.max(save.stars[i] || 0, stars);
     save.unlocked = Math.max(save.unlocked, Math.min(LEVELS.length, i + 2));
     persist(); SFX.win();
@@ -1014,6 +1234,8 @@ function endLevel(won) {
     $('resText').textContent = `The ${LEVELS[i].name} got you. Dew ${got}/${total}.`;
     $('resNext').classList.add('hidden');
   }
+  save.points += pts; persist();
+  $('resPoints').textContent = `+${pts} 🧬 evo points (${save.points} total)`;
   show('result');
 }
 
@@ -1025,6 +1247,8 @@ $('quitBtn').onclick = toMenu;
 $('resRetry').onclick = () => startLevel(S.level);
 $('resNext').onclick = () => startLevel(Math.min(LEVELS.length - 1, S.level + 1));
 $('resMenu').onclick = toMenu;
+$('evoOpen').onclick = () => { buildEvolve(); show('evolve'); };
+$('evoBack').onclick = () => { buildMenu(); show('menu'); };
 document.addEventListener('visibilitychange', () => { if (document.hidden) pauseGame(); });
 
 let hudCache = {};
@@ -1037,7 +1261,12 @@ function updateHUD() {
     bar: (prog * 100).toFixed(1) + '%',
     drops: `💧${S.dropsGot}`,
     lives: BUGS[S.bugType].emoji.repeat(Math.max(0, S.lives)),
+    stam: Math.round(b.stam / stats(S.bugType).maxStam * 100),
   };
+  if (vals.stam !== hudCache.stam) {
+    $('hudStam').style.width = vals.stam + '%';
+    $('hudStam').classList.toggle('low', vals.stam < 30);
+  }
   if (vals.name !== hudCache.name) $('hudName').textContent = vals.name;
   if (vals.bar !== hudCache.bar) $('hudBar').style.width = vals.bar;
   if (vals.drops !== hudCache.drops) $('hudDrops').textContent = vals.drops;

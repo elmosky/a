@@ -96,11 +96,62 @@ function odds() {
   return table;
 }
 
+// Bug mode: can a player cross, and can you win without trying? Each scripted player gets all 3 lives.
+function bugRuns(cruise) {
+  if (cruise !== undefined) WALK.cruise = cruise;
+  const threat = (p) => (p.type === 'flytrap' ? (p.state === 'open' || p.state === 'warn' ? p.trig + 12 : 0) : p.type === 'sundew' ? p.r + 12 : p.type === 'pitcher' ? p.pull * 0.75 : p.suck * 0.7);
+  const dodge = (dew) => () => {
+    const b = S.bug; let x = 0, y = -1, hit = false;
+    for (const p of S.lv.plants) {
+      const ahead = b.y - p.y, R = threat(p);
+      if (ahead < -30 || ahead > 190 || !R) continue;
+      const dx = b.x - p.x;
+      if (Math.abs(dx) < R + 14) { hit = true; const side = Math.abs(dx) < 4 ? (b.x < 200 ? 1 : -1) : Math.sign(dx); x += side * (b.x < 40 && side < 0 || b.x > 360 && side > 0 ? -1 : 1); }
+    }
+    if (hit) y = 0.5;
+    else if (dew) { const d = S.lv.drops.filter((q) => !q.got && q.y < b.y && b.y - q.y < 170).sort((p, q) => q.y - p.y)[0]; if (d) { const gap = Math.abs(d.x - b.x), room = Math.max(1, b.y - d.y); x = Math.max(-1, Math.min(1, (d.x - b.x) / 40)); y = gap > room * 0.8 ? 1 : gap > room * 0.4 ? 0.4 : 0; } }
+    const l = Math.max(1, Math.hypot(x, y));
+    return [x / l, y / l];
+  };
+  const players = { 'hands off (no steering, no taps)': { steer: () => [0, 0], taps: 0 }, 'hands off, but taps when caught': { steer: () => [0, 0], taps: 6 }, 'dodges plants': { steer: dodge(false), taps: 6 }, 'dodges plants, chases dew': { steer: dodge(true), taps: 6 } };
+  const out = {};
+  for (const [name, P] of Object.entries(players)) {
+    const row = {};
+    for (const type of Object.keys(BUGS)) for (let lvl = 0; lvl < LEVELS.length; lvl++) {
+      save.unlocked = 4; S.bugType = type;
+      startLevel(lvl); beginPlay();
+      let f = 0;
+      for (; f < 60 * 240 && S.mode === 'play'; f++) {
+        const [x, y] = P.steer(); input.active = true; input.x = x; input.y = y;
+        if (S.struggle && P.taps && f % Math.round(60 / P.taps) === 0) struggleTap();
+        update(1 / 60); S.particles.length = 0; S.texts.length = 0;
+      }
+      input.active = false; input.x = input.y = 0;
+      const won = S.mode === 'result' && document.getElementById('resTitle').textContent === 'Made it across!';
+      const dew = Math.round(S.dropsGot / S.lv.drops.length * 100);
+      row[`${type} ${lvl + 1}`] = `${won ? 'WIN' : S.mode === 'play' ? 'stuck' : 'lost'} ${S.deaths}d ${dew}%`;
+      S.mode = 'menu';
+    }
+    out[name] = row;
+  }
+  return out;
+}
+
 const browser = await webkit.launch();
 const page = await (await browser.newContext({ viewport: { width: 390, height: 844 } })).newPage();
 page.on('pageerror', (e) => { console.log('PAGE ERROR', e.message); process.exitCode = 1; });
 await page.addInitScript(() => { window.requestAnimationFrame = () => 0; });
 await page.goto('file://' + resolve('../index.html'));
+console.log('\nBug mode, each cell is result, lives lost, dew collected:');
+if (process.env.SWEEP) {
+  for (const c of process.env.SWEEP.split(',').map(Number)) {
+    const res = await page.evaluate(bugRuns, c);
+    const sum = Object.fromEntries(Object.entries(res).map(([k, row]) => { const v = Object.values(row); const dew = v.map((s) => +s.match(/(\d+)%/)[1]); return [k, { wins: v.filter((s) => s.startsWith('WIN')).length + '/12', lives: v.reduce((n, s) => n + +s.match(/(\d)d/)[1], 0), avgDew: Math.round(dew.reduce((a, b) => a + b) / 12) + '%', bestDew: Math.max(...dew) + '%', stuck: v.filter((s) => s.startsWith('stuck')).length }]; }));
+    console.log('cruise', c); console.table(sum);
+  }
+  await browser.close(); process.exit(0);
+}
+console.table(await page.evaluate(bugRuns));
 console.log(`\nFull games, ${SEEDS} seeds each (win %, health left when won, losses in wave 1/2/3):`);
 console.table(await page.evaluate(playAll, SEEDS));
 console.log('\nChance a caught bug breaks free (no armour, full stamina):');

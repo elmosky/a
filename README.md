@@ -15,9 +15,9 @@ On desktop it also runs in any browser, with arrow keys or WASD; `P` or `Esc` pa
 
 ## How it plays (bug side)
 
-- **Controls:** drag anywhere. A floating joystick appears under your thumb, so your finger never covers the bug.
+- **Controls:** your bug walks forward on its own at 70% of its speed. Drag anywhere to steer: a floating joystick appears under your thumb, so your finger never covers the bug. Push up for full speed, pull down to slow to 20%. You can't stop or walk backwards.
 - **Goal:** reach the flower meadow at the top. You have 3 lives and a checkpoint halfway.
-- **Stars:** 1 for crossing, +1 for collecting at least 60% of the dew drops, +1 for losing no lives.
+- **Stars:** 1 for crossing, +1 for collecting at least 45% of the dew drops, +1 for losing no lives.
 - **Caught? Struggle.** Being caught doesn't kill you outright. Tap the screen as fast as you can to fill the escape meter
   (inner ring) before the plant digests you (outer ring). Each tap costs 4 stamina. Stamina refills slowly while you're free,
   and each dew drop restores 8, so getting caught twice in quick succession is what kills you.
@@ -59,7 +59,7 @@ The bug's halo shifts colour and it grows slightly as it evolves.
 
 | Plant         | Behaviour | How to beat it |
 |---------------|-----------|----------------|
-| Venus flytrap | Getting within the dashed ring makes it shake and glow red, and it snaps 0.5 s later. Then it stays shut for 2.2 s (green ring counts down). | Bait it, back off, cross while it is shut. |
+| Venus flytrap | Getting within the dashed ring makes it shake and glow red, and it snaps 0.5 s later. Then it stays shut for 2.2 s (green ring counts down). | Slow down to bait it, then cross while it is shut. |
 | Sundew        | Its sticky zone cuts your speed to 38%. After 2.2 s inside, you're stuck and have to struggle free. | Cross quickly at the narrowest part, and don't stop. |
 | Pitcher plant | Its scent rings pull you toward the pit. Touching the mouth is fatal. | Steer against the pull and keep your distance. |
 | Bladderwort   | A cycle: idle, then charging (shrinking ring and bubbles), then a 0.45 s suction burst that drags in anything nearby. | Pass while it is idle. Get clear when the ring starts shrinking. |
@@ -125,8 +125,8 @@ The game has no dependencies. The tests do, and they live in `tests/`:
 cd tests && npm install && npx playwright install webkit
 ```
 
-- `npm test` runs `bug-mode-unchanged.mjs` (replays scripted play through the pre-plant-mode build and this one, and compares the game state on every frame) and `plant-mode.mjs` (real taps in WebKit at five iPhone sizes, plus mouse and keyboard at desktop size).
-- `npm run balance` plays full games with scripted players and measures struggle odds.
+- `npm test` runs `bug-mode-unchanged.mjs` (switches auto-walk off, replays scripted play through the pre-plant-mode build and this one, and compares the game state on every frame) and `plant-mode.mjs` (real taps in WebKit at five iPhone sizes, plus mouse and keyboard at desktop size).
+- `npm run balance` plays both modes with scripted players and measures struggle odds.
 
 ## Code map (`index.html`)
 

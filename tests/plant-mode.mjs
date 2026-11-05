@@ -63,6 +63,16 @@ console.log('Bug mode (real taps, iPhone 14)');
   const y1 = await page.evaluate(() => S.bug.y);
   await page.evaluate(() => document.getElementById('game').dispatchEvent(new PointerEvent('pointerup', { pointerId: 7, bubbles: true })));
   check('dragging moves the bug up the map', y1 < y0 - 40, `${y0} -> ${y1}`);
+  const walk = await page.evaluate(() => {
+    const run = (x, y) => { input.active = true; input.x = x; input.y = y; const a = S.bug.y, ax = S.bug.x; S.bug.inv = 9; for (let i = 0; i < 30; i++) update(1 / 60); const r = [a - S.bug.y, S.bug.x - ax]; input.active = false; input.x = input.y = 0; return r; };
+    const keep = S.lv.plants; S.lv.plants = []; S.bug.y = S.lv.startY; S.bug.x = 200;
+    const none = run(0, 0)[0], fast = run(0, -1)[0], slow = run(0, 1)[0], side = run(1, 0);
+    S.lv.plants = keep; S.bug.inv = 0; S.bug.y = S.lv.startY; S.bug.x = 200;
+    return { none, fast, slow, sideX: side[1], speed: BUGS.ant.speed };
+  });
+  check('with no input the bug keeps walking forward', walk.none > 25, JSON.stringify(walk));
+  check('pushing up is faster, pulling down is slower but never stops', walk.fast > walk.none && walk.slow > 0 && walk.slow < walk.none * 0.6, JSON.stringify(walk));
+  check('dragging sideways steers', walk.sideX > 25, JSON.stringify(walk));
   await page.tap('#pauseBtn'); check('pause works', await page.isVisible('#pause'));
   await page.tap('#resumeBtn'); check('resume returns to play', (await page.evaluate(() => S.mode)) === 'play');
   await page.evaluate(() => { const p = S.lv.plants.find((q) => q.type === 'flytrap'); catchBug(p); });

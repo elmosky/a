@@ -1,5 +1,5 @@
-// Proves bug mode still plays exactly as it did before plant mode existed. It compares game state, not pixels:
-// the storybook art pass changed how bug mode looks on purpose.
+// Proves bug mode's rules are intact: with auto-walk switched off (WALK.cruise = 0), it plays exactly as it did before
+// plant mode existed. It compares game state, not pixels, because the storybook art changed the look on purpose.
 // Runs the same scripted play through the original index.html (from git) and the current one, with
 // randomness and the clock pinned, and compares a hash of the full game state on every frame.
 import { execSync } from 'node:child_process';
@@ -18,13 +18,14 @@ function trace() {
   const out = {};
   for (const bugType of ['ant', 'beetle', 'fly']) for (let lvl = 0; lvl < LEVELS.length; lvl++) {
     S.bugType = bugType; save.unlocked = 4;
+    if (typeof WALK !== 'undefined') WALK.cruise = 0;
     let seed = lvl * 31 + bugType.length;
     Math.random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) | 0; return (seed >>> 0) / 4294967296; };
     startLevel(lvl); beginPlay();
     const R = rng(1000 + lvl);
     let h = hash(JSON.stringify(S.lv)), frames = 0, caughts = 0, steer = [0, -1];
     for (; frames < 7000 && S.mode === 'play'; frames++) {
-      if (frames % 40 === 0) steer = [(R() - 0.5) * 1.6, -0.5 - R() * 0.5];
+      if (frames % 40 === 0) { steer = [(R() - 0.5) * 1.6, -0.5 - R() * 0.5]; const l = Math.max(1, Math.hypot(...steer)); steer = steer.map((v) => v / l); }
       input.active = true; input.x = steer[0]; input.y = steer[1];
       if (S.struggle) { caughts += S.struggle.t === 0 ? 1 : 0; if (frames % 6 === 0) struggleTap(); }
       update(1 / 60); updateFx(1 / 60);

@@ -284,7 +284,7 @@
     <h2 id="introKicker" style="margin-top:0"></h2>
     <h1 id="introTitle" style="font-size:32px"></h1>
     <div id="introBody"></div>
-    <p class="hint" id="introHint">Drag anywhere to steer. Reach the flowers at the top.</p>
+    <p class="hint" id="introHint">Your bug walks on its own. Drag to steer. Reach the flowers at the top.</p>
     <button id="goBtn" style="width:100%">Go</button>
   </div>
 </div>
@@ -376,6 +376,7 @@ const GRIP = {
 };
 const TAP_COST = 4;          // stamina per struggle tap
 const DEW_STAMINA = 8;       // stamina restored per dew drop
+const DEW_STAR = 0.45;       // share of dew needed for a star; you can't walk back for drops you miss
 
 // Evolution: per-bug upgrades bought with evo points.
 const EVO = [
@@ -391,10 +392,13 @@ const EVO_COST = [8, 15, 25, 40, 60];   // cost of going from level n to n+1
 const FT = { warn: 0.5, snap: 0.12, closed: 2.2, opening: 0.6 };   // flytrap timings (s)
 const BW = { idle: 1.6, charge: 1.25, burst: 0.45 };               // bladderwort cycle (s)
 const BW_PERIOD = BW.idle + BW.charge + BW.burst;
+// The bug walks forward on its own at cruise x its speed. Pushing up reaches full speed, pulling down slows it to crawl.
+// It can't stop or reverse, so waiting a plant out isn't an option.
+const WALK = { cruise: 0.7, crawl: 0.2 };
 const STICK_LIMIT = 2.2;                                          // seconds in a sundew before stuck
 
 const PLANT_INFO = {
-  flytrap: ['Venus flytrap', 'Snaps shut when you get close. Bait it, back off, then slip past while it is shut (green ring = safe time left).'],
+  flytrap: ['Venus flytrap', 'Snaps shut when you get close. Slow down to bait it, then slip past while it is shut (green ring = safe time left).'],
   sundew:  ['Sundew', 'Sticky tentacles slow you right down. Linger too long and you get stuck, and have to struggle free.'],
   pitcher: ['Pitcher plant', 'Its sweet scent drags you toward the pit. Steer against the pull.'],
   bladder: ['Bladderwort', 'Charges under the water (shrinking ring, bubbles), then sucks in everything nearby.'],
@@ -789,6 +793,12 @@ function respawn() {
   S.caught = null; S.struggle = null;
 }
 
+function walkInput(ix, iy) {
+  const go = iy <= 0 ? WALK.cruise - iy * (1 - WALK.cruise) : WALK.cruise + iy * (WALK.crawl - WALK.cruise);
+  const l = Math.max(1, Math.hypot(ix, go));
+  return [ix / l, -go / l];
+}
+
 function update(dt) {
   const lv = S.lv, b = S.bug, B = BUGS[S.bugType];
   S.time += dt;
@@ -813,7 +823,7 @@ function update(dt) {
     return;
   }
 
-  let [ix, iy] = input.active ? [input.x, input.y] : keyVector();
+  const [ix, iy] = walkInput(...(input.active ? [input.x, input.y] : keyVector()));
   let slow = 1, ex = 0, ey = 0, dew = null;
   if (b.inv <= 0) {
     for (const p of lv.plants) {
@@ -1509,7 +1519,7 @@ function startLevel(i) {
     body.appendChild(item);
   }
   $('introHint').textContent = i === 0
-    ? 'Drag anywhere to steer (the joystick appears under your thumb). Reach the flowers at the top. Caught? Tap the screen as fast as you can to break free. Every tap burns stamina, so don\'t get caught twice in a row.'
+    ? 'Your bug walks on its own. Drag left and right to steer, up to speed up, down to slow down. Reach the flowers at the top. Caught? Tap the screen as fast as you can to break free. Every tap burns stamina, so don\'t get caught twice in a row.'
     : `Playing as ${BUGS[S.bugType].emoji} ${BUGS[S.bugType].name}. 3 lives, checkpoint halfway. Caught? Tap fast to break free.`;
   S.mode = 'intro'; show('intro');
   $('hud').classList.add('hidden');
@@ -1526,7 +1536,7 @@ function endLevel(won) {
   const i = S.level;
   let pts = got;                                  // every dew drop is an evo point, win or lose
   if (won) {
-    const stars = 1 + (got >= Math.ceil(total * 0.6) ? 1 : 0) + (S.deaths === 0 ? 1 : 0);
+    const stars = 1 + (got >= Math.ceil(total * DEW_STAR) ? 1 : 0) + (S.deaths === 0 ? 1 : 0);
     pts += 10 + 5 * Math.max(0, stars - (save.stars[i] || 0));   // finish bonus + new stars
     save.stars[i] = Math.max(save.stars[i] || 0, stars);
     save.unlocked = Math.max(save.unlocked, Math.min(LEVELS.length, i + 2));

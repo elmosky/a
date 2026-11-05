@@ -19,6 +19,8 @@ All notable changes to Scuttle are recorded here. The format follows [Keep a Cha
 
 ### Changed
 
+- Bug mode: the bug now walks forward on its own. Drag to steer, push up to speed up, pull down to slow down. It can't stop or reverse.
+- Bug mode: the dew star now needs 45% of the drops instead of 60%, because you can't go back for ones you miss.
 - Storybook art in both modes: sunlight, soft shadows, shaded plants and bugs, and a leafy backdrop on wide screens. Bug mode looks different now but plays the same.
 - Shared plant code now reads optional per-plant values (flytrap timing, bladderwort speed). Bug mode doesn't set them, so it plays exactly as before.
 - `escapeFrom()`, the terrain drawing and the floating text drawing were split into `popOut()`, `drawTerrain()` and `drawFloatText()` so both modes can use them.

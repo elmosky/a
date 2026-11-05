@@ -152,7 +152,7 @@ console.log('Plant mode: eating, escaping, beetle shells');
   await forward(page, "m.bugs.some((b) => b.st)");
   const held = await page.evaluate(() => ({ state: S.pm.plots[2].plant.state, held: S.pm.plots[2].plant.held.length }));
   check('flytrap senses, snaps and holds the ant', held.held === 1, JSON.stringify(held));
-  await page.evaluate(() => { const b = S.pm.bugs[0]; b.st.t = 0.2; b.st.prog = 0.6; pmRender(); });
+  await page.evaluate(() => { const b = S.pm.bugs[0]; b.st.t = 0.2; b.st.prog = 0.6; S.pm.shake = 0; pmRender(); });
   const ring = await page.evaluate(() => {
     const b = S.pm.bugs[0], v = S.pm.view, x = (v.ox + b.st.hx * v.s) * dpr, y = (v.oy + b.st.hy * v.s) * dpr, R = 24 * v.s * dpr;
     const d = ctx.getImageData(Math.round(x + R), Math.round(y), 1, 1).data;   // 3 o'clock on the ring: inside the 60% arc
@@ -251,6 +251,91 @@ for (const [name, viewport] of [['iPhone 14', { width: 390, height: 844 }], ['iP
   await page.screenshot({ path: `out/size-${viewport.width}x${viewport.height}.png` });
   check(`${name}: no page errors`, page.errs.length === 0, page.errs.join(' | '));
   await page.context().close();
+}
+
+// ---------------------------------------------------------------- desktop stage
+console.log('Desktop stage (mouse and keyboard, 1280x800)');
+{
+  const ctx = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+  const page = await ctx.newPage();
+  page.errs = [];
+  page.on('pageerror', (e) => page.errs.push(e.message));
+  await page.goto(URL_);
+  await page.click('#side-plant'); await page.click('#pmLevelList .level-btn'); await page.click('#goBtn');
+  await page.waitForFunction(() => S.mode === 'plant');
+  await page.waitForTimeout(120);
+  check('shop and status panels show, phone HUD and bar do not', await page.isVisible('#pmShop') && await page.isVisible('#pmRun') && !(await page.isVisible('#hud')) && !(await page.isVisible('#pmBar')));
+  const box = await page.evaluate(() => {
+    const m = S.pm, r = (id) => document.getElementById(id).getBoundingClientRect(), f = m.view.frame;
+    return { shopRight: r('pmShop').right, runLeft: r('pmRun').left, runBottom: r('pmRun').bottom, frame: f, h: innerHeight, over: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      plotsIn: m.plots.every((p) => { const y = m.view.oy + p.y * m.view.s; return y - 26 * m.view.s > f.y && y + 26 * m.view.s < f.y + f.h; }) };
+  });
+  check('panels sit beside the bog without touching it', box.shopRight < box.frame.x && box.runLeft > box.frame.x + box.frame.w && box.runBottom <= box.h, JSON.stringify(box));
+  check('all plots fit inside the framed bog, no overflow', box.plotsIn && box.over === 0, JSON.stringify(box));
+  await page.keyboard.press('1');
+  check('pressing 1 picks the flytrap in the shop', await page.evaluate(() => S.pm.armed === 'flytrap' && document.getElementById('shop-flytrap').classList.contains('armed')));
+  const at = (i) => plotXY(page, i);
+  let [x, y] = await at(2);
+  await page.mouse.move(x, y); await page.waitForTimeout(40);
+  check('hovering a plot with a plant picked targets it', await page.evaluate(() => S.pm.hover === S.pm.plots[2]));
+  await page.mouse.click(x, y); await page.waitForTimeout(40);
+  [x, y] = await at(3); await page.mouse.click(x, y); await page.waitForTimeout(40);
+  check('clicking plots plants without opening a menu, and stays picked', await page.evaluate(() => S.pm.plots[2].plant?.type === 'flytrap' && S.pm.plots[3].plant?.type === 'flytrap' && S.pm.armed === 'flytrap' && !S.pm.sel));
+  await page.evaluate(() => { S.pm.nutrients = 10; });
+  [x, y] = await at(4); await page.mouse.click(x, y); await page.waitForTimeout(40);
+  check('with too few nutrients nothing is planted', await page.evaluate(() => !S.pm.plots[4].plant && S.pm.nutrients === 10));
+  await page.waitForTimeout(60);
+  check('shop rows you cannot afford are disabled', await page.isDisabled('#shop-flytrap'));
+  await page.evaluate(() => { S.pm.nutrients = 300; });
+  await page.keyboard.press('1');
+  check('pressing 1 again puts it down', await page.evaluate(() => S.pm.armed === null));
+  [x, y] = await at(2); await page.mouse.click(x, y); await page.waitForTimeout(120);
+  check('clicking a plant opens its upgrades', (await page.textContent('#pmSheetBody')).includes('Bigger trigger zone'));
+  const sb = await page.locator('#pmSheet').boundingBox();
+  check('upgrade menu stays out of the bog', sb.x >= box.frame.x + box.frame.w && sb.y + sb.height <= 800, JSON.stringify(sb));
+  await page.click('#pmClose');
+  await page.click('#shop-sundew');
+  check('clicking the shop picks a plant too', await page.evaluate(() => S.pm.armed === 'sundew'));
+  await page.click('#pmWave2'); await page.waitForTimeout(100);
+  check('wave starts from the side panel', await page.evaluate(() => S.pm.active) && await page.isDisabled('#pmWave2'));
+  await page.click('#pmSpeed');
+  await page.waitForTimeout(100);
+  const spd = await page.evaluate(async () => {
+    const m = S.pm, count = (n) => new Promise((done) => { const a = m.t; let f = 0; const tick = () => (++f === n ? done(m.t - a) : requestAnimationFrame(tick)); requestAnimationFrame(tick); });
+    const fast = await count(30); m.speed = 1; const slow = await count(30); m.speed = 2;
+    return { ratio: fast / slow };
+  });
+  await page.waitForTimeout(100);
+  check('speed button really runs the game twice as fast', Math.abs(spd.ratio - 2) < 0.35 && (await page.textContent('#pmSpeed')) === 'Speed 1x', JSON.stringify(spd));
+  await page.click('#pmPause'); check('pause works from the panel', await page.isVisible('#pause'));
+  await page.click('#quitBtn');
+  check('leaving plant mode removes the panels', !(await page.isVisible('#pmShop')) && !(await page.isVisible('#pmRun')));
+  await page.click('#side-bug'); await page.click('#levelList .level-btn'); await page.click('#goBtn');
+  await page.waitForTimeout(200);
+  check('bug mode HUD is back after desktop plant mode', await page.isVisible('#hud') && await page.isVisible('#hudStam'));
+  check('no page errors', page.errs.length === 0, page.errs.join(' | '));
+  await ctx.close();
+}
+
+// ---------------------------------------------------------------- calm mode
+console.log('Reduced motion');
+{
+  const ctx = await browser.newContext({ ...iphone, reducedMotion: 'reduce' });
+  const page = await ctx.newPage();
+  page.errs = [];
+  page.on('pageerror', (e) => page.errs.push(e.message));
+  await page.goto(URL_);
+  await startPlant(page);
+  const r = await page.evaluate(() => {
+    const m = S.pm; m.nutrients = 500; pmPlant(m.plots[2], 'flytrap');
+    pmStartWave(); m.queue = []; pmSpawn('ant'); Object.assign(m.bugs[0], { x: 200, y: 590 });
+    let flies = 0, n = 0;
+    while (m.eaten + m.escapes === 0 && n++ < 3000) { pmUpdate(1 / 60); flies = Math.max(flies, m.flies.length); }
+    return { flies, calm: CALM };
+  });
+  check('with reduced motion on, no flying specks', r.calm && r.flies === 0, JSON.stringify(r));
+  check('no page errors', page.errs.length === 0, page.errs.join(' | '));
+  await ctx.close();
 }
 
 await browser.close(); server.close();

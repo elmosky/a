@@ -79,6 +79,7 @@ Pick **Plant** on the menu. The whole bog fits on one screen, so nothing scrolls
 
 - **Goal:** survive all 3 waves on Sunny Bog. Each bug that reaches the flowers drains the bog's 20 health (ants and flies 1, beetles 3). At 0 you lose.
 - **Controls:** tap a soil patch to pick a plant. Tap a plant to upgrade it. Tap **Start wave** when you're ready. Time runs at 30% while a plant menu is open.
+- **On a wide screen** (at least 900px, in landscape) the plant shop and run status stay on screen. Press 1 to 4 or click the shop to pick a plant, then click plots to plant it. Press the same key to put it down. A 2x speed button sits under the status.
 - **Money:** you start with 170 nutrients. An eaten ant pays 12, a fly 14, a beetle 30, and clearing a wave pays 60.
 - **Struggles:** a caught bug fights on its own. The yellow ring is its escape meter and the thin red ring is the time before it's digested.
   Bugs tire: every struggle tap costs the same stamina as in bug mode, so a bug that has already escaped once has less left.
@@ -124,7 +125,7 @@ The game has no dependencies. The tests do, and they live in `tests/`:
 cd tests && npm install && npx playwright install webkit
 ```
 
-- `npm test` runs `bug-mode-unchanged.mjs` (replays scripted play through the pre-plant-mode build and this one, and compares every frame plus rendered pixels) and `plant-mode.mjs` (real taps in WebKit at five iPhone sizes).
+- `npm test` runs `bug-mode-unchanged.mjs` (replays scripted play through the pre-plant-mode build and this one, and compares the game state on every frame) and `plant-mode.mjs` (real taps in WebKit at five iPhone sizes, plus mouse and keyboard at desktop size).
 - `npm run balance` plays full games with scripted players and measures struggle odds.
 
 ## Code map (`index.html`)
@@ -134,7 +135,8 @@ cd tests && npm install && npx playwright install webkit
 - `buildLevel()`: seeded placement of plant rows (the checkpoint band is always kept clear), dew drops and decor.
 - `update()` / `updatePlant()` / `catchBug()`: movement, plant behaviour and death/respawn.
 - `struggleTap()` / `updateStruggle()` / `escapeFrom()`: the tap-to-escape minigame. `stats()` applies evolution upgrades.
-- `draw*()`: all art is drawn procedurally on canvas.
+- `draw*()`: all art is drawn procedurally on canvas, in the storybook style shown in `docs/mockups/style-a-phone.png` and `style-a-web.png`.
+  Sunlight (`SUN`) goes on the ground only, under the plants, so their dark pits stay dark. `softShadow()` and `drawLight()` use cached images to keep frames cheap.
 - `pm*()`: plant mode. `pmUpdate()` runs a frame, `pmSteer()` / `pmMoveBug()` move AI bugs, `pmCatch()` / `pmStruggle()` handle caught bugs,
   `pmOpenSheet()` is the plant menu and `pmRender()` draws the bog. `updatePlant()`, `bladderPhase()`, `trapOpen()` and the `draw*()` functions are shared with bug mode.
 

@@ -84,7 +84,7 @@ function odds() {
   for (const grip of [0, 1, 2, 3]) for (const type of Object.keys(PM_PLANTS)) for (const bug of Object.keys(BUGS)) {
     m.grip = grip; let freed = 0;
     for (let i = 0; i < N; i++) {
-      const p = Object.assign(makePlant(type, 200, 400, m.R), { held: [], cap: 9, digest: PM.digest, closedT: PM.closed });
+      const p = Object.assign(makePlant(type, 200, 400, m.R), { held: [], cap: 9, digest: PM.digest, closedT: PM.closed, pop: 0 });
       pmSpawn(bug); const b = m.bugs.pop(); b.armor = 0; b.x = 200; b.y = 400;
       pmCatch(b, p);
       while (b.st) pmStruggle(b, 1 / 60);

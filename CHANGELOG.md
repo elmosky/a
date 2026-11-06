@@ -12,6 +12,7 @@ All notable changes to Scuttle are recorded here. The format follows [Keep a Cha
 - Browser tests in `tests/`: a frame-by-frame check that bug-mode gameplay is unchanged, plant-mode tests at five iPhone sizes, and balance bots.
 - Hosted on GitHub Pages at https://elmosky.github.io/a/.
 - Style mockups in `docs/mockups/`, which the storybook art was built against.
+- Playtest scripts in `tests/` that step the real game loop to hunt for bugs and exploits.
 - This changelog.
 
 - Plant mode on wide screens: always-on plant shop, hotkeys 1 to 4, a range preview when you hover a plot, run status panel and a 2x speed button.
@@ -19,6 +20,7 @@ All notable changes to Scuttle are recorded here. The format follows [Keep a Cha
 
 ### Changed
 
+- Bug mode: plants now grow against both walls, because hugging an edge won every landscape with no risk.
 - Bug mode: the bug now walks forward on its own. Drag to steer, push up to speed up, pull down to slow down. It can't stop or reverse.
 - Bug mode: the dew star now needs 45% of the drops instead of 60%, because you can't go back for ones you miss.
 - Storybook art in both modes: sunlight, soft shadows, shaded plants and bugs, and a leafy backdrop on wide screens. Bug mode looks different now but plays the same.
@@ -27,4 +29,6 @@ All notable changes to Scuttle are recorded here. The format follows [Keep a Cha
 
 ### Fixed
 
+- Plant mode: a wave could get stuck forever when a pitcher's pull exactly balanced a sundew's slowdown. Bugs now shake loose after 4 seconds with no progress.
+- Bug mode: a thumb held down through a struggle now steers again as soon as you're free.
 - The dark smear below the meadow, caused by fading to transparent black.

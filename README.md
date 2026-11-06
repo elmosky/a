@@ -17,6 +17,7 @@ On desktop it also runs in any browser, with arrow keys or WASD; `P` or `Esc` pa
 
 - **Controls:** your bug walks forward on its own at 70% of its speed. Drag anywhere to steer: a floating joystick appears under your thumb, so your finger never covers the bug. Push up for full speed, pull down to slow to 20%. You can't stop or walk backwards.
 - **Goal:** reach the flower meadow at the top. You have 3 lives and a checkpoint halfway.
+- **Walls aren't safe:** plants grow against both edges, so you can't just hug one all the way up.
 - **Stars:** 1 for crossing, +1 for collecting at least 45% of the dew drops, +1 for losing no lives.
 - **Caught? Struggle.** Being caught doesn't kill you outright. Tap the screen as fast as you can to fill the escape meter
   (inner ring) before the plant digests you (outer ring). Each tap costs 4 stamina. Stamina refills slowly while you're free,
@@ -115,7 +116,7 @@ Pick **Plant** on the menu. The whole bog fits on one screen, so nothing scrolls
 ### How the bugs move
 
 AI bugs walk at 55% of their `BUGS` speed, because at full speed they outrun every trap. They head for the top and sidestep threats ahead of them
-according to their `AI.aware` stat: ants dodge the most, flies barely, and beetles not at all. They never stop, so a wave can't stall.
+according to their `AI.aware` stat: ants dodge the most, flies barely, and beetles not at all. A bug that gains no ground for 4 seconds shakes loose for a moment, so a wave can't stall.
 
 ## Tests
 
@@ -127,6 +128,7 @@ cd tests && npm install && npx playwright install webkit
 
 - `npm test` runs `bug-mode-unchanged.mjs` (switches auto-walk off, replays scripted play through the pre-plant-mode build and this one, and compares the game state on every frame) and `plant-mode.mjs` (real taps in WebKit at five iPhone sizes, plus mouse and keyboard at desktop size).
 - `npm run balance` plays both modes with scripted players and measures struggle odds.
+- `playtest-*.mjs` step the real main loop with real pointer events, to hunt for bugs, exploits and stalled games. Run them one at a time with `node`.
 
 ## Code map (`index.html`)
 

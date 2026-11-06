@@ -1,4 +1,4 @@
-// Proves bug mode's rules are intact: with auto-walk switched off (WALK.cruise = 0), it plays exactly as it did before
+// Proves bug mode's rules are intact: with auto-walk and wall plants switched off, it plays exactly as it did before
 // plant mode existed. It compares game state, not pixels, because the storybook art changed the look on purpose.
 // Runs the same scripted play through the original index.html (from git) and the current one, with
 // randomness and the clock pinned, and compares a hash of the full game state on every frame.
@@ -19,6 +19,7 @@ function trace() {
   for (const bugType of ['ant', 'beetle', 'fly']) for (let lvl = 0; lvl < LEVELS.length; lvl++) {
     S.bugType = bugType; save.unlocked = 4;
     if (typeof WALK !== 'undefined') WALK.cruise = 0;
+    if (typeof WALLS !== 'undefined') WALLS.on = false;
     let seed = lvl * 31 + bugType.length;
     Math.random = () => { seed = (Math.imul(seed, 1664525) + 1013904223) | 0; return (seed >>> 0) / 4294967296; };
     startLevel(lvl); beginPlay();

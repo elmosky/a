@@ -73,6 +73,28 @@ console.log('Bug mode (real taps, iPhone 14)');
   check('with no input the bug keeps walking forward', walk.none > 25, JSON.stringify(walk));
   check('pushing up is faster, pulling down is slower but never stops', walk.fast > walk.none && walk.slow > 0 && walk.slow < walk.none * 0.6, JSON.stringify(walk));
   check('dragging sideways steers', walk.sideX > 25, JSON.stringify(walk));
+  const thumb = await page.evaluate(() => {
+    const ev = (t, x, y, id) => document.getElementById('game').dispatchEvent(new PointerEvent(t, { pointerId: id, clientX: x, clientY: y, bubbles: true, cancelable: true }));
+    const keep = S.lv.plants, res = {};
+    S.lv.plants = [makePlant('flytrap', 200, S.bug.y - 300, rng(1))];
+    ev('pointerdown', 195, 560, 3); ev('pointermove', 250, 560, 3);
+    catchBug(S.lv.plants[0]); ev('pointermove', 140, 560, 3);          // same thumb, still down, now pushing left
+    S.struggle.prog = 0.99; ev('pointerdown', 100, 500, 4); ev('pointerup', 100, 500, 4);
+    for (let i = 0; i < 4; i++) update(1 / 60);
+    res.free = !S.struggle; S.bug.inv = 9; for (let i = 0; i < 40; i++) update(1 / 60);
+    res.vx = S.bug.vx; res.live = input.active; ev('pointerup', 140, 560, 3);
+    // A finger that lands the last tap and stays down steers too
+    catchBug(S.lv.plants[0]); S.struggle.prog = 0.99; ev('pointerdown', 195, 560, 6); ev('pointermove', 250, 560, 6);
+    for (let i = 0; i < 4; i++) update(1 / 60);
+    S.bug.inv = 9; for (let i = 0; i < 40; i++) update(1 / 60);
+    res.tapVx = S.bug.vx; ev('pointerup', 250, 560, 6);
+    S.lv.plants = keep; S.bug.inv = 0; S.bug.y = S.lv.startY; S.bug.x = 200; S.bug.vx = 0;
+    return res;
+  });
+  check('a thumb held through a struggle steers as soon as you are free', thumb.free && thumb.live && thumb.vx < -40, JSON.stringify(thumb));
+  check('a finger left down after the last tap steers too', thumb.tapVx > 40, JSON.stringify(thumb));
+  const walls = await page.evaluate(() => LEVELS.map((L, i) => { const lv = buildLevel(i); return [lv.plants.filter((p) => p.x < 40).length, lv.plants.filter((p) => p.x > 360).length]; }));
+  check('every landscape has plants on both walls', walls.every(([l, r]) => l >= 2 && r >= 2), JSON.stringify(walls));
   await page.tap('#pauseBtn'); check('pause works', await page.isVisible('#pause'));
   await page.tap('#resumeBtn'); check('resume returns to play', (await page.evaluate(() => S.mode)) === 'play');
   await page.evaluate(() => { const p = S.lv.plants.find((q) => q.type === 'flytrap'); catchBug(p); });
@@ -153,6 +175,18 @@ console.log('Plant mode: eating, escaping, beetle shells');
   const page = await open();
   await startPlant(page);
   await tapPlot(page, 2); await page.tap('#pm-flytrap');
+  const unstuck = await page.evaluate(() => {
+    // The exact trap from the playtest: a beetle on the edge of a wide sundew, with an upgraded pitcher behind it
+    const m = S.pm, keepPlants = m.lv.plants, keep = { n: m.nutrients };
+    const sun = Object.assign(makePlant('sundew', 105, 225, rng(1)), { held: [], cap: 2, r: 72, pop: 0, digest: PM.digest });
+    const pit = Object.assign(makePlant('pitcher', 90, 425, rng(1)), { held: [], cap: 2, pull: 135, force: 1.7, pop: 0, digest: PM.digest });
+    m.lv.plants = [sun, pit]; pmSpawn('beetle'); const b = m.bugs[0]; Object.assign(b, { x: 93, y: 299.5, armor: 0 });
+    let f = 0; while (m.bugs.includes(b) && !b.gone && !b.st && f < 60 * 30) { pmUpdate(1 / 60); f++; }
+    const r = { secs: +(f / 60).toFixed(1), freed: !m.bugs.includes(b) || !!b.gone || !!b.st, y: Math.round(b.y) };
+    m.bugs = []; m.lv.plants = keepPlants; m.hp = m.C.hp; m.leaked = 0; m.eaten = 0; m.nutrients = keep.n; S.texts = []; S.particles = [];
+    return r;
+  });
+  check('a bug pinned between a sundew and a pitcher gets free', unstuck.freed && unstuck.secs < 25, JSON.stringify(unstuck));
   await page.tap('#pmWave');
   await page.waitForTimeout(100);
   check('wave button starts the wave and hides itself', await page.evaluate(() => S.pm.active) && !(await page.isVisible('#pmWave')));

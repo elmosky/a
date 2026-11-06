@@ -6,74 +6,47 @@ import { webkit } from 'playwright';
 const SEEDS = +(process.argv[2] || 60);
 
 function playAll(SEEDS) {
-  // Each bot gets a chance to spend every 0.5 s of game time.
-  const buyPlant = (m, type) => {
-    const plot = m.plots.find((pl) => !pl.plant);
-    if (plot && m.nutrients >= PM_PLANTS[type].cost) { pmPlant(plot, type); return true; }
-    return false;
-  };
-  const buyUp = (m, types) => {
-    for (const pl of m.plots) {
-      const p = pl.plant;
-      if (!p || (types && !types.includes(p.type))) continue;
-      const u = PM_PLANTS[p.type].path[p.lvl];
-      if (u && m.nutrients >= u.cost) { pmUpgrade(pl); pmCloseSheet(); return true; }
-    }
-    return false;
-  };
-  const buyGrip = (m) => {
-    if (m.grip < PM.gripCost.length && m.nutrients >= PM.gripCost[m.grip]) { pmGrip(m.plots[0]); pmCloseSheet(); return true; }
-    return false;
-  };
-  const count = (m) => m.lv.plants.length;
-  // A person spreads plants across the map instead of filling plots bottom to top.
-  const SPREAD = [2, 3, 4, 5, 0, 1, 6, 7];
-  const buyAt = (m, type) => {
-    const plot = SPREAD.map((i) => m.plots[i]).find((pl) => !pl.plant);
-    if (plot && m.nutrients >= PM_PLANTS[type].cost) { pmPlant(plot, type); return true; }
-    return false;
-  };
-  const onlyPlant = (type) => (m) => buyPlant(m, type);
-  const onlyPlantUp = (type) => (m) => buyUp(m) || buyPlant(m, type);
-  const cycle = ['flytrap', 'sundew', 'flytrap', 'pitcher', 'bladder', 'flytrap', 'sundew', 'pitcher'];
+  // Each bot gets a chance to spend every 0.5 s of game time. Runs are endless, so the score is waves held.
+  const up = (m, order) => { for (const i of order) { const pl = m.plots[i], p = pl.plant; if (!p) continue; const u = PM_PLANTS[p.type].path[p.lvl]; if (u && m.nutrients >= u.cost) { pmUpgrade(pl); pmCloseSheet(); return true; } } return false; };
+  const grip = (m) => { if (m.grip < PM.gripCost.length && m.nutrients >= PM.gripCost[m.grip]) { pmGrip(m.plots[0]); pmCloseSheet(); return true; } return false; };
+  const plant = (m, order, types) => { for (const i of order) if (!m.plots[i].plant) { const t = types[m.lv.plants.length % types.length]; if (m.nutrients >= PM_PLANTS[t].cost) { pmPlant(m.plots[i], t); return true; } return false; } return false; };
+  const low = [0, 1, 2, 3, 4, 5, 6, 7], high = [6, 7, 5, 3, 4, 2, 0, 1];
+  const mix = ['sundew', 'flytrap', 'pitcher', 'bladder'];
+  const heal = (m, at) => (!m.active && m.hp <= at && m.nutrients >= pmMendCost() ? (pmMend(), true) : false);
+  const fort = (m) => (!m.active && m.lv.plants.length === 8 && m.nutrients >= pmMendCost() ? (pmMend(), true) : false);
   const BOTS = {
     'does nothing': () => false,
-    'one flytrap, then stops': (m) => count(m) < 1 && buyPlant(m, 'flytrap'),
-    'two plants, no upgrades': (m) => count(m) < 2 && buyPlant(m, ['flytrap', 'sundew'][count(m)]),
-    'flytraps only, no upgrades': onlyPlant('flytrap'),
-    'sundews only, no upgrades': onlyPlant('sundew'),
-    'pitchers only, no upgrades': onlyPlant('pitcher'),
-    'bladderworts only, no upgrades': onlyPlant('bladder'),
-    'flytraps + upgrades': onlyPlantUp('flytrap'),
-    'sundews + upgrades': onlyPlantUp('sundew'),
-    'pitchers + upgrades': onlyPlantUp('pitcher'),
-    'bladderworts + upgrades': onlyPlantUp('bladder'),
-    'mixed plants first, then upgrades': (m) => (count(m) < 8 && m.nutrients >= PM_PLANTS[cycle[count(m)]].cost ? buyPlant(m, cycle[count(m)]) : count(m) >= 4 && (buyUp(m) || buyGrip(m))),
-    'spread out, no upgrades': (m) => count(m) < 8 && buyAt(m, cycle[count(m)]),
-    'spread out, upgrades after 4 plants': (m) => (count(m) < 4 ? buyAt(m, cycle[count(m)]) : buyGrip(m) || buyUp(m) || (count(m) < 8 && buyAt(m, cycle[count(m)]))),
-    'spread out, 6 plants then upgrades': (m) => (count(m) < 6 ? buyAt(m, cycle[count(m)]) : buyGrip(m) || buyUp(m) || (count(m) < 8 && buyAt(m, cycle[count(m)]))),
-    'mixed + grip early': (m) => (count(m) < 3 ? buyPlant(m, cycle[count(m)]) : buyGrip(m) || (count(m) < 8 && buyPlant(m, cycle[count(m)])) || buyUp(m)),
+    'one flytrap, then stops': (m) => m.lv.plants.length < 1 && plant(m, low, ['flytrap']),
+    'plants only, never upgrades or mends': (m) => plant(m, low, mix),
+    'plants + upgrades, never mends': (m) => plant(m, low, mix) || grip(m) || up(m, low),
+    'plants + upgrades, mends below 10': (m) => heal(m, 9) || plant(m, low, mix) || grip(m) || up(m, low),
+    'mixed, mends, then fortifies': (m) => heal(m, 9) || plant(m, low, mix) || grip(m) || up(m, low) || fort(m),
+    'plants + upgrades, always mends': (m) => heal(m, 15) || plant(m, low, mix) || grip(m) || up(m, low),
+    'sundew + bladderwort, mends, fortifies': (m) => heal(m, 9) || plant(m, high, ['sundew', 'bladder']) || grip(m) || up(m, high) || fort(m),
+    'sundew + flytrap, mends, fortifies': (m) => heal(m, 9) || plant(m, low, ['sundew', 'flytrap']) || grip(m) || up(m, low) || fort(m),
+    'flytraps only, mends, fortifies': (m) => heal(m, 9) || plant(m, low, ['flytrap']) || grip(m) || up(m, low) || fort(m),
+    'mends only, plants little': (m) => heal(m, 19) || (m.lv.plants.length < 3 && plant(m, low, mix)),
   };
   const out = {};
   for (const [name, bot] of Object.entries(BOTS)) {
-    let wins = 0, hp = 0, waveLost = [0, 0, 0], leakW = [0, 0, 0], eaten = 0, leaked = 0, esc = 0, secs = 0, spent = 0, worst = 0;
+    const waves = []; let eaten = 0, secs = 0, longest = 0, maxed = 0;
     for (let seed = 1; seed <= SEEDS; seed++) {
       pmStart(0, seed * 7919); pmBegin();
       const m = S.pm;
       let t = 0, frames = 0;
-      while (S.mode === 'plant' && frames < 60 * 600) {
+      while (S.mode === 'plant' && frames < 60 * 3600) {
         if (t <= 0) { t = 0.5; while (bot(m)); }
-        if (!m.active) pmStartWave();
-        const w = m.wave, before = m.leaked;
-        pmUpdate(1 / 60); leakW[w] += m.leaked - before; S.particles.length = 0; S.texts.length = 0;
+        if (!m.active) { if (bot(m)) continue; pmStartWave(); }
+        pmUpdate(1 / 60); S.particles.length = 0; S.texts.length = 0; m.flies.length = 0;
         t -= 1 / 60; frames++;
       }
       if (S.mode === 'plant') throw new Error('run never finished: ' + name);
-      if (m.hp > 0) { wins++; hp += m.hp; } else waveLost[m.wave]++;
-      eaten += m.eaten; leaked += m.leaked; esc += m.escapes; secs += frames / 60; worst = Math.max(worst, frames / 60);
+      waves.push(m.wave); eaten += m.eaten; secs += frames / 60; longest = Math.max(longest, frames / 60);
+      if (m.lv.plants.length === 8 && m.lv.plants.every((p) => p.lvl === 3) && m.grip === 3) maxed++;
     }
-    out[name] = { win: Math.round(wins / SEEDS * 100), hpIfWon: wins ? +(hp / wins).toFixed(1) : '-', lostInWave: waveLost.join('/'), leaksByWave: leakW.map((n) => (n / SEEDS).toFixed(1)).join('/'),
-      eaten: +(eaten / SEEDS).toFixed(1), through: +(leaked / SEEDS).toFixed(1), freed: +(esc / SEEDS).toFixed(1), secs: Math.round(secs / SEEDS), worst: Math.round(worst) };
+    waves.sort((a, b) => a - b);
+    const q = (k) => waves[Math.floor(k * (waves.length - 1))];
+    out[name] = { worst: waves[0], low: q(0.25), typical: q(0.5), high: q(0.75), best: waves[waves.length - 1], eaten: Math.round(eaten / SEEDS), mins: +(secs / SEEDS / 60).toFixed(1), longestMins: +(longest / 60).toFixed(1), maxedOut: Math.round(maxed / SEEDS * 100) + '%' };
   }
   return out;
 }
@@ -151,9 +124,9 @@ if (process.env.SWEEP) {
   }
   await browser.close(); process.exit(0);
 }
-console.table(await page.evaluate(bugRuns));
-console.log(`\nFull games, ${SEEDS} seeds each (win %, health left when won, losses in wave 1/2/3):`);
+if (!process.env.PLANT_ONLY) console.table(await page.evaluate(bugRuns));
+console.log(`\nEndless plant runs, ${SEEDS} seeds each. Waves held, from worst to best, then eaten, minutes of play:`);
 console.table(await page.evaluate(playAll, SEEDS));
 console.log('\nChance a caught bug breaks free (no armour, full stamina):');
-console.table(await page.evaluate(odds));
+if (!process.env.PLANT_ONLY) console.table(await page.evaluate(odds));
 await browser.close();

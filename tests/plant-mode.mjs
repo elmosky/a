@@ -26,6 +26,7 @@ async function open(viewport) {
   page.on('pageerror', (e) => page.errs.push(e.message));
   page.on('console', (m) => { if (m.type() === 'error') page.errs.push(m.text()); });
   await page.goto(URL_);
+  await page.evaluate(() => { window.__scuttleFrame = () => { hudCache = {}; pmHUD(); }; });
   return page;
 }
 const plotXY = (page, i) => page.evaluate((i) => { const { view: v, plots } = S.pm; return [v.ox + plots[i].x * v.s, v.oy + plots[i].y * v.s]; }, i);
@@ -230,7 +231,7 @@ console.log('Plant mode: eating, escaping, beetle shells');
 }
 
 // ---------------------------------------------------------------- win and loss
-console.log('Plant mode: win and loss');
+console.log('Plant mode: endless waves and loss');
 {
   const page = await open();
   await startPlant(page);
@@ -245,16 +246,59 @@ console.log('Plant mode: win and loss');
   await page.tap('#resRetry'); await page.tap('#goBtn');
   check('Retry starts a fresh run', await page.evaluate(() => S.mode === 'plant' && S.pm.hp === S.pm.C.hp && S.pm.wave === 0));
   await page.evaluate(() => { const m = S.pm; m.nutrients = 99999; m.plots.forEach((pl, i) => pmPlant(pl, ['flytrap', 'sundew', 'pitcher', 'bladder'][i % 4])); m.plots.forEach((pl) => { for (let k = 0; k < 3; k++) { pmUpgrade(pl); pmCloseSheet(); } }); });
-  for (let w = 1; w <= 3; w++) {
-    const label = await page.textContent('#pmWave').catch(() => '');
+  for (let w = 1; w <= 5; w++) {
     await page.waitForFunction(() => !S.pm.active && document.getElementById('pmWave').offsetParent !== null, null, { timeout: 2000 });
-    check(`wave ${w} button shows its bugs`, (await page.textContent('#pmWave')).startsWith(`Start wave ${w} ·`), label);
+    check(`wave ${w} button shows its bugs`, (await page.textContent('#pmWave')).startsWith(`Start wave ${w}\n`), await page.textContent('#pmWave'));
     await page.tap('#pmWave');
     await forward(page, `!m.active || m.hp <= 0`);
     await page.waitForTimeout(60);
   }
-  check('surviving wave 3 wins', (await page.textContent('#resTitle')) === 'The bog held!', await page.textContent('#resTitle'));
-  console.log('      ', await page.textContent('#resText'), '|', await page.textContent('#resPoints'));
+  check('there is no win: wave 6 is offered after wave 5', await page.evaluate(() => S.mode === 'plant' && S.pm.wave === 5) && (await page.textContent('#pmWave')).startsWith('Start wave 6\n'));
+  const grow = await page.evaluate(() => { const size = (n) => pmWaveSpec(n).reduce((a, w) => a + w.n, 0); return [size(2), size(3), size(6), size(12)]; });
+  check('each wave past the opening ones is bigger', grow[0] < grow[1] && grow[1] < grow[2] && grow[2] < grow[3], grow);
+  check('later bugs walk faster and struggle harder', await page.evaluate(() => { const m = S.pm, a = pmPace(), b = pmAge(); m.wave = 15; const r = pmPace() > a && pmAge() > b; m.wave = 5; return r; }));
+
+  console.log('Plant mode: mending, fortifying and best score');
+  const mend = await page.evaluate(() => {
+    const m = S.pm, btn = document.getElementById('pmMend'), r = {};
+    m.hp = 12; m.nutrients = 100; __scuttleFrame();
+    r.shows = btn.textContent; btn.click(); r.after = [m.hp, m.nutrients];
+    m.hp = 18; btn.click(); r.capped = [m.hp, m.maxHp];
+    m.hp = m.maxHp; m.nutrients = 1000; __scuttleFrame();
+    r.fortLabel = btn.textContent; btn.click(); r.fort = [m.hp, m.maxHp, m.nutrients]; const c2 = pmMendCost(); r.rises = c2 > PM.fortify.cost;
+    m.nutrients = 5; m.hp = 3; __scuttleFrame(); r.poorDisabled = btn.disabled; pmMend(); r.poorHp = m.hp;
+    m.nutrients = 500; pmStartWave(); __scuttleFrame(); r.hiddenInWave = btn.classList.contains('hidden'); const h = m.hp; pmMend(); r.noMendInWave = m.hp === h;
+    return r;
+  });
+  check('mend heals 5 for 40 nutrients between waves', mend.after[0] === 17 && mend.after[1] === 60 && mend.shows.includes('40'), JSON.stringify(mend));
+  check('mend stops at the maximum', mend.capped[0] === 20 && mend.capped[1] === 20, JSON.stringify(mend));
+  check('at full health it fortifies, and the price rises', mend.fortLabel.startsWith('Max') && mend.fort[0] === 25 && mend.fort[1] === 25 && mend.fort[2] === 850 && mend.rises, JSON.stringify(mend));
+  check('you cannot mend without the nutrients', mend.poorDisabled && mend.poorHp === 3, JSON.stringify(mend));
+  check('you cannot mend during a wave', mend.hiddenInWave && mend.noMendInWave, JSON.stringify(mend));
+  await page.evaluate(() => { S.pm.bugs = []; S.pm.queue = []; S.pm.hp = 1; pmSpawn('ant'); S.pm.bugs[0].y = PM.goalY + 2; S.pm.bugs[0].inv = 9; });
+  await forward(page, 'false', 300);
+  await page.waitForTimeout(80);
+  check('the run ends with waves held and a new best', (await page.textContent('#resText')).startsWith('You held 5 waves') && (await page.textContent('#resPoints')) === 'New best!', await page.textContent('#resText'));
+  check('no stars or win text on the result', !(await page.textContent('#resStars')).includes('★') && (await page.textContent('#resTitle')) === 'The bog was overrun.');
+  await page.tap('#resRetry'); await page.tap('#goBtn');
+  await page.waitForFunction(() => S.mode === 'plant');
+  await page.evaluate(() => { S.pm.hp = 1; pmStartWave(); S.pm.queue = []; pmSpawn('ant'); S.pm.bugs[0].y = PM.goalY + 2; S.pm.bugs[0].inv = 9; });
+  await forward(page, 'false', 300);
+  await page.waitForTimeout(80);
+  check('a worse run keeps the old best', (await page.textContent('#resPoints')) === 'Your best: 5 waves', await page.textContent('#resPoints'));
+  await page.reload();
+  await page.evaluate(() => { window.__scuttleFrame = () => { hudCache = {}; pmHUD(); }; });
+  await page.waitForTimeout(200);
+  check('best score survives a reload and shows on the menu', (await page.textContent('#pmLevelList')).includes('Best: 5 waves') && await page.isVisible('#pmLevelList'), await page.textContent('#pmLevelList'));
+  await page.tap('#side-bug');
+  await page.waitForTimeout(60);
+  await page.tap('#side-plant');
+  await page.waitForTimeout(60);
+  await page.evaluate(() => { document.getElementById('pmLevelList').querySelector('button').click(); });
+  await page.tap('#goBtn');
+  await page.evaluate(() => { const m = S.pm; m.hp = 1; m.bugs = []; pmStartWave(); m.queue = []; pmSpawn('ant'); m.bugs[0].y = PM.goalY + 2; m.bugs[0].inv = 9; });
+  await forward(page, 'false', 300);
+  await page.waitForTimeout(80);
   await page.tap('#resMenu');
   await page.tap('#side-bug'); await page.tap('#levelList .level-btn'); await page.tap('#goBtn');
   await page.waitForFunction(() => S.mode === 'play');
@@ -289,6 +333,11 @@ for (const [name, viewport] of [['iPhone 14', { width: 390, height: 844 }], ['iP
     check(`${name}: picker fits on screen, clear of plot ${i}, buttons ${Math.round(h)}px tall`, b.y >= 0 && b.y + b.height <= viewport.height && (y < b.y || y > b.y + b.height) && h >= 48, JSON.stringify({ b, y }));
     await page.tap('#pmClose');
   }
+  await page.evaluate(() => { S.pm.hp = 10; S.pm.wave = 12; });
+  await page.waitForTimeout(80);
+  const bar = await page.evaluate(() => { const a = document.getElementById('pmMend').getBoundingClientRect(), b = document.getElementById('pmWave').getBoundingClientRect(); return { aL: a.left, aR: a.right, bL: b.left, bR: b.right, h: b.height, w: innerWidth, text: document.getElementById('pmWave').textContent, clip: document.getElementById('pmWave').scrollWidth > document.getElementById('pmWave').clientWidth + 1 }; });
+  check(`${name}: mend and start buttons fit side by side, even on a big wave`, bar.aL >= 0 && bar.aR <= bar.bL && bar.bR <= bar.w && !bar.clip && bar.h >= 48, JSON.stringify(bar));
+  await page.evaluate(() => { S.pm.hp = 20; S.pm.wave = 0; });
   await tapPlot(page, 6); await page.tap('#pm-flytrap'); await tapPlot(page, 6);
   const ub = await page.locator('#pmSheet').boundingBox(), bh = (await page.locator('#pmSheetBody .evo-row button').first().boundingBox()).height;
   check(`${name}: upgrade sheet fits, buttons ${Math.round(bh)}px tall`, ub.y >= 0 && ub.y + ub.height <= viewport.height && bh >= 48, JSON.stringify(ub));
@@ -340,6 +389,10 @@ console.log('Desktop stage (mouse and keyboard, 1280x800)');
   await page.click('#pmClose');
   await page.click('#shop-sundew');
   check('clicking the shop picks a plant too', await page.evaluate(() => S.pm.armed === 'sundew'));
+  await page.evaluate(() => { S.pm.hp = 10; S.pm.nutrients = 300; }); await page.waitForTimeout(100);
+  check('desktop panel offers mending in a break', await page.isVisible('#pmMend2') && (await page.textContent('#pmMend2')).startsWith('Mend bog'));
+  await page.click('#pmMend2');
+  check('mending works from the desktop panel', await page.evaluate(() => S.pm.hp === 15 && S.pm.nutrients === 260));
   await page.click('#pmWave2'); await page.waitForTimeout(100);
   check('wave starts from the side panel', await page.evaluate(() => S.pm.active) && await page.isDisabled('#pmWave2'));
   await page.click('#pmSpeed');

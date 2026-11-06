@@ -1,6 +1,6 @@
 # Plant mode
 
-**Status, 2026-11-04:** built for Sunny Bog with 3 waves. This is the design note; `README.md` has the numbers as shipped.
+**Status, 2026-11-06:** endless waves on Sunny Bog. This is the design note; `README.md` has the numbers as shipped.
 Other landscapes aren't built yet.
 
 ## What changed while building it
@@ -21,7 +21,8 @@ plants grow in nutrient-poor bogs and get their nitrogen from insects, so nutrie
 1. A landscape is shown with fixed planting plots (empty soil patches) between the bottom and the top.
 2. Waves of AI bugs (ants, beetles, flies, using the existing `BUGS` stats) try to cross from bottom to top.
 3. Each bug eaten gives **nutrients**. The player spends them to plant on a plot or upgrade an existing plant.
-4. Each bug that reaches the top drains the bog's health (the "castle"). Health at 0 means a loss. Survive all waves to win.
+4. Each bug that reaches the top drains the bog's health (the "castle"). Health at 0 ends the run. The waves never stop, so the score is how many you held.
+5. Between waves the player can plant, upgrade, mend or fortify. Healing costs the same nutrients as upgrades, so every repair is an upgrade you didn't buy. Fortifying gives nutrients a use after everything is upgraded.
 
 ## Reuse from bug mode
 

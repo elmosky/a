@@ -143,9 +143,12 @@
   #pmBar {
     position: absolute; left: 0; right: 0; bottom: 0; pointer-events: none; box-sizing: border-box;
     padding: 8px 16px calc(env(safe-area-inset-bottom) + 10px); min-height: 66px;
-    display: flex; align-items: center; justify-content: center;
+    display: flex; align-items: center; justify-content: center; gap: 8px;
   }
-  #pmBar button { pointer-events: auto; width: 100%; max-width: 420px; min-height: 52px; }
+  #pmBar button { pointer-events: auto; min-height: 52px; font-size: 16px; line-height: 1.15; padding: 6px 10px; }
+  #pmWave { flex: 1; max-width: 420px; white-space: pre-line; }
+  #pmMend { flex: none; white-space: nowrap; background: rgba(14, 26, 10, 0.88); }
+  #pmMend:disabled { background: rgba(14, 26, 10, 0.7); }
   #pmTip {
     font-weight: 700; font-size: 16px; text-align: center; padding: 9px 26px; border-radius: 16px; font-variant-numeric: tabular-nums;
     background: linear-gradient(rgba(30, 48, 22, 0.86), rgba(14, 26, 10, 0.88)); border: 1px solid rgba(255, 255, 255, 0.2);
@@ -161,6 +164,7 @@
   .pm-head b { flex: 1; font-size: 18px; }
   .pm-head span { color: var(--accent); font-weight: 700; font-variant-numeric: tabular-nums; }
   .pm-head button { width: 48px; padding: 0; }
+  .pm-best { color: var(--accent); font-size: 15px; white-space: nowrap; }
   .pm-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
   .pm-card {
     display: grid; grid-template-columns: 44px 1fr; gap: 0 8px; align-items: center; text-align: left;
@@ -221,6 +225,7 @@
 </div>
 
 <div id="pmBar" class="hidden">
+  <button class="secondary hidden" id="pmMend"></button>
   <button id="pmWave"></button>
   <div id="pmTip" class="hidden"></div>
 </div>
@@ -241,6 +246,7 @@
   <div id="pmRunLeft"></div>
   <div id="pmRunBtns">
     <button id="pmWave2"></button>
+    <button class="secondary hidden" id="pmMend2"></button>
     <div class="pair">
       <button class="secondary" id="pmSpeed"></button>
       <button class="secondary" id="pmPause">Pause</button>
@@ -440,6 +446,12 @@ const PM = {
   tapRate: 5.0,                     // struggle taps per second for an AI bug (x0.6 to x1.4 per struggle)
   gripCost: [45, 75, 120], gripStep: 0.12,   // each Grip level: bug's gain / (1 + step), meter decay x (1 + step)
   waveBonus: 60,                    // nutrients for clearing a wave
+  mend: { hp: 5, cost: 40 },        // bog health bought during a break between waves
+  fortify: { hp: 5, cost: 150, rise: 1.45 },  // at full health, the same button raises the maximum at a rising price, forever
+  grow: { ant: 3, fly: 2, beetle: 1.25 },     // bugs added per wave after the opening waves
+  tighten: 0.95, tightest: 0.5,     // spacing between bugs shrinks by this much per wave, down to this floor
+  hurry: 0.04, hurryMax: 0.9,       // walking speed added per wave, up to this limit
+  tough: 0.05,                      // struggle strength added per wave, with no limit, so every run ends
   wide: 900,                        // screens at least this wide (in landscape) get the shop and status panels
 };
 
@@ -474,7 +486,8 @@ const PM_PLANTS = {
   ] },
 };
 
-// waves: groups of { bug, n, gap (seconds between bugs), delay (seconds after the wave starts) }.
+// waves: the opening waves, as groups of { bug, n, gap (seconds between bugs), delay (seconds after the wave starts) }.
+// After these, pmWaveSpec() keeps making the last one bigger for as long as the bog holds.
 const PM_LEVELS = [
   { level: 0, nutrients: 170, hp: 20,
     plots: [[105, 625], [295, 610], [200, 520], [90, 425], [310, 410], [200, 315], [105, 225], [300, 220]],
@@ -489,7 +502,7 @@ const PM_LEVELS = [
 // Save data
 // ---------------------------------------------------------------------------
 const SAVE_KEY = 'scuttle.v1';
-let save = { unlocked: 1, stars: [0, 0, 0, 0], bug: 'ant', last: 0, points: 0, evo: {}, side: 'bug' };
+let save = { unlocked: 1, stars: [0, 0, 0, 0], bug: 'ant', last: 0, points: 0, evo: {}, side: 'bug', plantBest: 0 };
 try { const s = JSON.parse(localStorage.getItem(SAVE_KEY)); if (s) save = Object.assign(save, s); } catch (e) {}
 for (const k of Object.keys(BUGS)) {
   save.evo[k] = Object.assign(Object.fromEntries(EVO.map((u) => [u.key, 0])), save.evo[k] || {});
@@ -1443,7 +1456,7 @@ function buildSides() {
   PM_LEVELS.forEach((C, i) => {
     const L = LEVELS[C.level], btn = document.createElement('button');
     btn.className = 'level-btn';
-    btn.innerHTML = `<div>${L.name}<small>${C.waves.length} waves of bugs</small></div>`;
+    btn.innerHTML = `<div>${L.name}<small>Endless waves of bugs</small></div>` + (save.plantBest ? `<div class="pm-best">Best: ${save.plantBest} ${save.plantBest === 1 ? 'wave' : 'waves'}</div>` : '');
     btn.onclick = () => { audioInit(); pmStart(i); };
     list.appendChild(btn);
   });
@@ -1614,7 +1627,7 @@ function pmStart(i, seed = Date.now()) {
   lv.plants = []; lv.drops = []; lv.goalY = PM.goalY; lv.len = PM.spawnY + 300;   // long enough to keep bug mode's start zone off screen
   S.pm = {
     i, C, lv, R: rng(seed), plots: C.plots.map(([x, y]) => ({ x, y, plant: null })), bugs: [], queue: [],
-    nutrients: C.nutrients, hp: C.hp, wave: 0, active: false, t: 0, grip: 0, sel: null,
+    nutrients: C.nutrients, hp: C.hp, maxHp: C.hp, forts: 0, wave: 0, active: false, t: 0, grip: 0, sel: null,
     eaten: 0, leaked: 0, escapes: 0, view: { s: 1, ox: 0, oy: 0, frame: null },
     speed: 1, armed: null, hover: null, shake: 0, flies: [],
   };
@@ -1634,12 +1647,13 @@ function pmStart(i, seed = Date.now()) {
     ['🌱', 'Plant', 'Tap a soil patch and pick a plant. Plants cost nutrients.'],
     ['🪲', 'Eat', 'Eaten bugs pay nutrients. Caught bugs fight back: the yellow ring is their escape meter.'],
     ['⬆️', 'Upgrade', 'Tap a plant to upgrade it. Upgrades only last this run.'],
+    ['❤️', 'Mend', 'Between waves, spend nutrients to heal the bog. At full health, you can fortify it instead.'],
   ]) {
     const item = document.createElement('div'); item.className = 'intro-item';
     item.innerHTML = `<div class="emoji">${emoji}</div><div><b>${title}</b><span>${text}</span></div>`;
     body.appendChild(item);
   }
-  $('introHint').textContent = `Bugs that reach the flowers drain the bog. Survive all ${C.waves.length} waves.`;
+  $('introHint').textContent = `Bugs that reach the flowers drain the bog. The waves never stop. How many can you hold?${save.plantBest ? ` Your best is ${save.plantBest}.` : ''}`;
   S.mode = 'intro'; show('intro');
 }
 
@@ -1668,11 +1682,21 @@ function pmLayout() {
 }
 window.addEventListener('resize', () => { if (S.pm) pmLayout(); });
 
+// Waves past the opening ones: the last opening wave, with more bugs arriving closer together.
+function pmWaveSpec(n) {
+  const opening = S.pm.C.waves, k = n - opening.length + 1;
+  if (k <= 0) return opening[n];
+  const tight = Math.max(PM.tightest, PM.tighten ** k);
+  return opening[opening.length - 1].map((w) => ({ ...w, n: w.n + Math.round(k * PM.grow[w.bug]), gap: w.gap * tight }));
+}
+const pmAge = () => Math.max(0, S.pm.wave - S.pm.C.waves.length + 1);   // waves past the opening ones
+const pmPace = () => 1 + Math.min(PM.hurryMax, pmAge() * PM.hurry);
+
 function pmStartWave() {
   const m = S.pm;
   if (m.active || S.mode !== 'plant') return;
   m.active = true; m.t = 0; m.queue = [];
-  for (const w of m.C.waves[m.wave]) for (let j = 0; j < w.n; j++) m.queue.push({ t: w.delay + j * w.gap, type: w.bug });
+  for (const w of pmWaveSpec(m.wave)) for (let j = 0; j < w.n; j++) m.queue.push({ t: w.delay + j * w.gap, type: w.bug });
   m.queue.sort((a, b) => a.t - b.t);
 }
 
@@ -1723,7 +1747,7 @@ function pmStruggle(b, dt) {
   st.tap -= dt;
   while (st.tap <= 0) {
     st.tap += -Math.log(1 - m.R()) / st.rate;
-    if (b.stam >= TAP_COST) { b.stam -= TAP_COST; st.prog = Math.min(1, st.prog + G.gain * BUGS[b.type].grip / gripK); st.shake = 1; }
+    if (b.stam >= TAP_COST) { b.stam -= TAP_COST; st.prog = Math.min(1, st.prog + G.gain * BUGS[b.type].grip * (1 + pmAge() * PM.tough) / gripK); st.shake = 1; }
   }
   if (st.prog >= 1) { pmRelease(b); popOut(b, st.p, st.x0, st.y0); m.escapes++; addText(b.x, b.y - 24, 'Broke free!', '#ffb3a0'); return; }
   st.prog = Math.max(0, st.prog - G.decay * gripK * dt);
@@ -1797,7 +1821,7 @@ function pmMoveBug(b, dt) {
   } else b.stick = Math.max(0, b.stick - dt * 1.5);
   b.stam = Math.min(B.stamina, b.stam + B.regen * dt);
 
-  const [ix, iy] = pmSteer(b), sp = B.speed * PM.walk * slow, k = 1 - Math.exp(-B.accel * dt);
+  const [ix, iy] = pmSteer(b), sp = B.speed * PM.walk * pmPace() * slow, k = 1 - Math.exp(-B.accel * dt);
   b.vx += (ix * sp - b.vx) * k; b.vy += (iy * sp - b.vy) * k;
   if (dew) { const vm = Math.hypot(b.vx, b.vy); if (vm > sp) { b.vx *= sp / vm; b.vy *= sp / vm; } }
   b.x += (b.vx + ex) * dt; b.y += (b.vy + ey) * dt;
@@ -1853,30 +1877,29 @@ function pmUpdate(rawDt) {
     m.hp = Math.max(0, m.hp - dmg); m.leaked++; b.gone = 1;   // already past the fade-out, so it just vanishes
     addText(b.x, PM.goalY + 14, `-${dmg} ❤️`, '#ff8a7a');
     burst(b.x, PM.goalY, '#ff6a55', 8); SFX.tired();
-    if (m.hp <= 0) { pmEnd(false); return; }
+    if (m.hp <= 0) { pmEnd(); return; }
   }
   m.bugs = m.bugs.filter((b) => b.gone < 0.6);
 
   if (m.active && !m.queue.length && !m.bugs.length) {
     m.active = false; m.wave++;
-    if (m.wave >= m.C.waves.length) { pmEnd(true); return; }
     m.nutrients += PM.waveBonus;
     addText(200, 400, `Wave cleared! +${PM.waveBonus} 🌱`, '#e6ffb0');
     SFX.cp();
   }
 }
 
-function pmEnd(won) {
-  const m = S.pm;
+function pmEnd() {
+  const m = S.pm, held = m.wave, best = save.plantBest, record = held > best;
+  if (record) { save.plantBest = held; persist(); }
   S.mode = 'result'; pmCloseSheet();
   $('hud').classList.add('hidden'); $('pmBar').classList.add('hidden');
-  const stars = won ? 1 + (m.hp >= m.C.hp / 2 ? 1 : 0) + (m.hp === m.C.hp ? 1 : 0) : 0;
-  $('resTitle').textContent = won ? 'The bog held!' : 'The bog was overrun.';
-  $('resStars').innerHTML = starHTML(stars);
-  $('resText').textContent = `Eaten ${m.eaten} · Got through ${m.leaked} · Broke free ${m.escapes}`;
-  $('resPoints').textContent = `Bog health ${m.hp}/${m.C.hp}`;
+  $('resTitle').textContent = 'The bog was overrun.';
+  $('resStars').innerHTML = '';
+  $('resText').textContent = `You held ${held} ${held === 1 ? 'wave' : 'waves'}. Eaten ${m.eaten} · Got through ${m.leaked} · Broke free ${m.escapes}`;
+  $('resPoints').textContent = record ? 'New best!' : `Your best: ${best} ${best === 1 ? 'wave' : 'waves'}`;
   $('resNext').classList.add('hidden');
-  if (won) SFX.win();
+  if (record) SFX.win();
   show('result');
 }
 
@@ -1958,6 +1981,20 @@ function pmUpgrade(plot) {
   pmOpenSheet(plot);
 }
 
+// Healing competes with upgrades for the same nutrients, and it's only on offer between waves.
+// At full health the same button raises the bog's maximum, which keeps nutrients worth earning once everything is upgraded.
+function pmMendCost() {
+  const m = S.pm;
+  return m.hp < m.maxHp ? PM.mend.cost : Math.round(PM.fortify.cost * PM.fortify.rise ** m.forts);
+}
+function pmMend() {
+  const m = S.pm, hurt = m.hp < m.maxHp;
+  if (m.active || !pmSpend(pmMendCost())) return;
+  if (hurt) m.hp = Math.min(m.maxHp, m.hp + PM.mend.hp);
+  else { m.maxHp += PM.fortify.hp; m.hp += PM.fortify.hp; m.forts++; }
+  addText(200, PM.goalY + 40, hurt ? `+${PM.mend.hp} ❤️` : `Bog fortified +${PM.fortify.hp}`, '#c8f37a');
+}
+
 function pmGrip(plot) {
   const m = S.pm;
   if (m.grip >= PM.gripCost.length || !pmSpend(PM.gripCost[m.grip])) return;
@@ -2029,20 +2066,22 @@ function pmAfford() {
 }
 
 function pmHUD() {
-  const m = S.pm, waves = m.C.waves, n = Math.min(m.wave + 1, waves.length);
+  const m = S.pm, n = m.wave + 1;
   const live = m.bugs.filter((b) => !b.gone), left = m.queue.length + live.length;
   const count = {};
   for (const type of Object.keys(BUGS)) count[type] = 0;
   if (m.active) { for (const q of m.queue) count[q.type]++; for (const b of live) count[b.type]++; }
-  else if (m.wave < waves.length) for (const w of waves[m.wave]) count[w.bug] += w.n;
-  const next = !m.active && m.wave < waves.length
-    ? `Start wave ${m.wave + 1} · ` + Object.entries(count).filter(([, v]) => v).map(([k, v]) => `${BUGS[k].emoji}${v}`).join(' ') : '';
+  else for (const w of pmWaveSpec(m.wave)) count[w.bug] += w.n;
+  const next = !m.active
+    ? `Start wave ${m.wave + 1}\n` + Object.entries(count).filter(([, v]) => v).map(([k, v]) => `${BUGS[k].emoji}${v}`).join(' ') : '';
   const vals = {
-    name: `${LEVELS[m.C.level].name} · Wave ${n}/${waves.length}`,
-    wave: `Wave ${n} of ${waves.length}`,
-    bar: (m.hp / m.C.hp * 100).toFixed(1) + '%',
+    name: `${LEVELS[m.C.level].name} · Wave ${n}`,
+    wave: `Wave ${n}`,
+    bar: (m.hp / m.maxHp * 100).toFixed(1) + '%',
     drops: `🌱${m.nutrients}`, nut: String(m.nutrients), lives: `❤️${m.hp}`, next, tip: `${left} ${left === 1 ? 'bug' : 'bugs'} left`,
     count: JSON.stringify(count), speed: `Speed ${m.speed === 1 ? 2 : 1}x`, label: m.active ? 'Still coming' : 'Next wave',
+    mend: m.active ? 'hide' : m.nutrients >= pmMendCost() ? 'on' : 'off',
+    mendText: `${m.hp < m.maxHp ? `❤️+${PM.mend.hp}` : `Max ❤️+${PM.fortify.hp}`} · 🌱${pmMendCost()}`,
   };
   if (vals.name !== hudCache.name) $('hudName').textContent = vals.name;
   if (vals.wave !== hudCache.wave) $('pmRunWave').textContent = vals.wave;
@@ -2054,7 +2093,7 @@ function pmHUD() {
   }
   if (vals.lives !== hudCache.lives) $('hudLives').textContent = vals.lives;
   if (vals.next !== hudCache.next) {
-    $('pmWave').textContent = next; $('pmWave2').textContent = next || vals.tip;
+    $('pmWave').textContent = next; $('pmWave2').textContent = next.split('\n')[0] || vals.tip;
     $('pmWave2').disabled = !next;
     $('pmWave').classList.toggle('hidden', !next); $('pmTip').classList.toggle('hidden', !!next);
   }
@@ -2062,6 +2101,8 @@ function pmHUD() {
   if (vals.count !== hudCache.count) for (const chip of $('pmRunLeft').children) { chip.lastChild.textContent = count[chip.dataset.type]; chip.classList.toggle('hidden', !count[chip.dataset.type]); }
   if (vals.speed !== hudCache.speed) $('pmSpeed').textContent = vals.speed;
   if (vals.label !== hudCache.label) $('pmRunLabel').textContent = vals.label;
+  if (vals.mendText !== hudCache.mendText) { $('pmMend').textContent = vals.mendText; $('pmMend2').textContent = (m.hp < m.maxHp ? 'Mend bog ' : 'Fortify bog ') + vals.mendText; }
+  if (vals.mend !== hudCache.mend) for (const b of [$('pmMend'), $('pmMend2')]) { b.classList.toggle('hidden', vals.mend === 'hide'); b.disabled = vals.mend === 'off'; }
   hudCache = vals;
 }
 
@@ -2161,6 +2202,7 @@ function pmPopped(g, p, draw) {
 }
 
 $('pmWave').onclick = $('pmWave2').onclick = () => { audioInit(); pmStartWave(); };
+$('pmMend').onclick = $('pmMend2').onclick = pmMend;
 $('pmSpeed').onclick = () => { S.pm.speed = S.pm.speed === 1 ? 2 : 1; };
 $('pmPause').onclick = pauseGame;
 $('pmClose').onclick = pmCloseSheet;

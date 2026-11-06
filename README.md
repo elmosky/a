@@ -78,9 +78,11 @@ Each layout is generated from a fixed seed, so a landscape is the same every tim
 
 Pick **Plant** on the menu. The whole bog fits on one screen, so nothing scrolls.
 
-- **Goal:** survive all 3 waves on Sunny Bog. Each bug that reaches the flowers drains the bog's 20 health (ants and flies 1, beetles 3). At 0 you lose.
+- **Goal:** hold out as long as you can. The waves never stop and there's no win screen. Each bug that reaches the flowers drains the bog's 20 health (ants and flies 1, beetles 3). At 0 the run ends. Your score is waves held, and your best is saved on the menu.
 - **Controls:** tap a soil patch to pick a plant. Tap a plant to upgrade it. Tap **Start wave** when you're ready. Time runs at 30% while a plant menu is open.
 - **On a wide screen** (at least 900px, in landscape) the plant shop and run status stay on screen. Press 1 to 4 or click the shop to pick a plant, then click plots to plant it. Press the same key to put it down. A 2x speed button sits under the status.
+- **Breaks:** after each wave, take as long as you like. Start the next one when you're ready.
+- **Mending:** during a break, 40 nutrients heals 5 health. At full health the same button fortifies the bog instead: +5 maximum health at a price that starts at 150 and rises 45% each time. Healing competes with upgrades for the same nutrients.
 - **Money:** you start with 170 nutrients. An eaten ant pays 12, a fly 14, a beetle 30, and clearing a wave pays 60.
 - **Struggles:** a caught bug fights on its own. The yellow ring is its escape meter and the thin red ring is the time before it's digested.
   Bugs tire: every struggle tap costs the same stamina as in bug mode, so a bug that has already escaped once has less left.
@@ -112,6 +114,20 @@ Pick **Plant** on the menu. The whole bog fits on one screen, so nothing scrolls
 | 1 | 8 ants |
 | 2 | 10 ants, 6 flies |
 | 3 | 12 ants, 8 flies, 4 beetles |
+| 4 and up | Wave 3, plus 3 ants, 2 flies and 1.25 beetles for each wave after it |
+
+From wave 4 on, bugs also arrive closer together, walk 4% faster per wave (up to +90%), and struggle 5% harder per wave with no limit, so every run ends.
+
+How far scripted players got, 16 runs each (`npm run balance`):
+
+| Play style | Typical waves held |
+|---|---|
+| Does nothing | 1 |
+| Plants only | 2 |
+| Plants and upgrades, never mends | 4 |
+| Plants and upgrades, mends below half health | 12 |
+| Mends, then fortifies | 18 |
+| Best builds found | 19 to 22 |
 
 ### How the bugs move
 

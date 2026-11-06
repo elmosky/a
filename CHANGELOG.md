@@ -6,7 +6,8 @@ All notable changes to Scuttle are recorded here. The format follows [Keep a Cha
 
 ### Added
 
-- Plant mode: pick a side on the menu, then defend Sunny Bog from 3 waves of AI bugs.
+- Plant mode: mend the bog between waves for 40 nutrients, or fortify it at full health to raise its maximum.
+- Plant mode: pick a side on the menu, then defend Sunny Bog from AI bugs.
 - Eight fixed planting plots, four plants, three upgrades per plant, and a shared Grip upgrade, all paid for with nutrients from eaten bugs.
 - AI bugs that steer around threats by stat, struggle on their own, and show an escape meter when caught.
 - Browser tests in `tests/`: a frame-by-frame check that bug-mode gameplay is unchanged, plant-mode tests at five iPhone sizes, and balance bots.
@@ -20,6 +21,7 @@ All notable changes to Scuttle are recorded here. The format follows [Keep a Cha
 
 ### Changed
 
+- Plant mode is now endless: waves never stop and there's no win screen. After wave 3 each wave has more bugs, closer together, faster and stronger. Your score is waves held, and your best is saved on the menu.
 - Bug mode: plants now grow against both walls, because hugging an edge won every landscape with no risk.
 - Bug mode: the bug now walks forward on its own. Drag to steer, push up to speed up, pull down to slow down. It can't stop or reverse.
 - Bug mode: the dew star now needs 45% of the drops instead of 60%, because you can't go back for ones you miss.
